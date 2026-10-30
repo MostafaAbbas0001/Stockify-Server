@@ -1,0 +1,58 @@
+@host = http://localhost:5000
+
+### 1. Platform admin sign-in (credentials from PlatformAdmin__Email / PlatformAdmin__Password)
+# @name platformLogin
+POST {{host}}/api/platform/auth/login
+Content-Type: application/json
+
+{
+  "email": "you@example.com",
+  "password": "change-me-too"
+}
+
+### 2. Create a company (tenant) with its owner account
+POST {{host}}/api/platform/tenants
+Authorization: Bearer {{platformLogin.response.body.token}}
+Content-Type: application/json
+
+{
+  "companyName": "Demo Cafe",
+  "businessType": "cafe",
+  "firstBranchName": "Hamra Branch",
+  "ownerName": "Demo Owner",
+  "ownerEmail": "owner@democafe.com",
+  "ownerPassword": "ChangeMe123!",
+  "baseCurrency": { "code": "USD", "name": "US Dollar", "symbol": "$", "exchangeRate": 1 },
+  "additionalCurrencies": [
+    { "code": "LBP", "name": "Lebanese Pound", "symbol": "ل.ل", "exchangeRate": 89500 }
+  ],
+  "taxName": "VAT",
+  "taxRate": 0.11
+}
+
+### 3. List companies
+GET {{host}}/api/platform/tenants
+Authorization: Bearer {{platformLogin.response.body.token}}
+
+### 4. Suspend (or re-activate with "Active") a company
+PATCH {{host}}/api/platform/tenants/1/status
+Authorization: Bearer {{platformLogin.response.body.token}}
+Content-Type: application/json
+
+{
+  "status": "Suspended"
+}
+
+### 5. Company owner sign-in
+# @name ownerLogin
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "owner@democafe.com",
+  "password": "ChangeMe123!"
+}
+
+### 6. Any company endpoint with the owner's token
+GET {{host}}/api/branches
+Authorization: Bearer {{ownerLogin.response.body.token}}

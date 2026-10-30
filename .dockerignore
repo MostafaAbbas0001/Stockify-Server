@@ -1,0 +1,9 @@
+# Keep the image build context to the API sources.
+.git
+.vs
+.vscode
+**/bin
+**/obj
+Logs
+.env
+*.md
