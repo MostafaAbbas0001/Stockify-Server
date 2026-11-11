@@ -190,6 +190,13 @@ app.MapControllers();
 
 await PlatformAdminSeeder.EnsureBootstrapAdminAsync(app.Services, app.Configuration);
 
+// `dotnet run -- seed:demo` builds the three demo companies and exits without serving requests.
+if (args.Contains("seed:demo"))
+{
+    await DemoSeeder.RunAsync(app.Services);
+    return;
+}
+
 app.Lifetime.ApplicationStarted.Register(() =>
     Log.ForContext("SourceContext", "ServerLifecycle").Information("Stockify server started"));
 
