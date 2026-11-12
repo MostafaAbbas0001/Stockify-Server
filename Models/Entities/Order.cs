@@ -27,6 +27,8 @@ public class Order : ITenantOwned
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ShippedAt { get; set; }
     public DateTime? CancelledAt { get; set; }
+    /// <summary>Why the order was cancelled (free text from the cashier or manager).</summary>
+    public string? CancelReason { get; set; }
 
     public ICollection<Invoice> Invoices { get; set; } = new List<Invoice>();
     public ICollection<OrderItem> OrderItems { get; set; } = new List<OrderItem>();

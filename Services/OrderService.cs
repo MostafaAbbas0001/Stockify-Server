@@ -236,10 +236,10 @@ public class OrderService
         if (action != "ship" && action != "cancel" && action != "deliver")
             throw new ArgumentException("Invalid action. Allowed: ship, deliver, cancel.");
 
-        // Load items only when needed for cancellation
+        // Load items (with the lots they consumed) only when needed for cancellation
         var query = _db.Orders.Include(o => o.OrderStatus).AsQueryable();
         if (action == "cancel")
-            query = query.Include(o => o.OrderItems);
+            query = query.Include(o => o.OrderItems).ThenInclude(item => item.Lots);
 
         var order = await query.SingleOrDefaultAsync(o => o.Id == orderId);
         if (order == null)
@@ -295,18 +295,27 @@ public class OrderService
             };
         }
 
-        // cancel flow
-        if (status == OrderStatusCodes.FullyPaid)
-            throw new ArgumentException("Order is already paid, cannot cancel.");
+        // Cancel flow (D18): only an order nobody has paid for or returned against can be cancelled.
+        // Money already taken is reversed through a return (credit memo), never by cancelling.
+        if (status is OrderStatusCodes.Returned or OrderStatusCodes.PartiallyReturned)
+            throw new InvalidOperationException("This order has returns; it cannot be cancelled.");
+        if (await _db.Payments.AnyAsync(p => p.Invoice.OrderId == order.Id))
+            throw new InvalidOperationException("This order has payments; refund it through a return instead of cancelling.");
 
         var returnMovementTypeId = await _lookups.IdAsync<MovementType>(MovementTypeCodes.ReturnFromClient);
+        var reasonText = string.IsNullOrWhiteSpace(request.Reason) ? "cancelled" : $"cancelled: {request.Reason.Trim()}";
         foreach (var item in order.OrderItems)
         {
+            // Only the units still out with the customer come back.
+            var outstanding = item.Quantity - item.Lots.Sum(lot => lot.ReturnedQuantity);
+            if (outstanding <= 0)
+                continue;
+
             var returnedLots = await _inventory.ReturnSoldQuantityAsync(
                 order.Id,
                 item.ProductVariantId,
                 order.BranchId,
-                item.Quantity);
+                outstanding);
 
             foreach (var returnedLot in returnedLots)
             {
@@ -318,13 +327,14 @@ public class OrderService
                     MovementTypeId = returnMovementTypeId,
                     Quantity = returnedLot.Value,
                     CreatedAt = DateTime.UtcNow,
-                    Reason = $"Order #{orderId} cancelled"
+                    Reason = $"Order #{orderId} {reasonText}"
                 });
             }
         }
 
         order.OrderStatusId = await _lookups.IdAsync<OrderStatus>(OrderStatusCodes.Cancelled);
         order.CancelledAt = DateTime.UtcNow;
+        order.CancelReason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
 
         // void related invoice
         var invoice = await _db.Invoices.SingleOrDefaultAsync(i => i.OrderId == order.Id);
@@ -458,6 +468,7 @@ public class OrderService
                 o.CreatedAt,
                 o.ShippedAt,
                 o.CancelledAt,
+                o.CancelReason,
                 CreatedByEmployeeName = o.CreatedByEmployee != null ? o.CreatedByEmployee.Name : null,
                 InvoiceId = _db.Invoices
                     .Where(i => i.OrderId == o.Id)

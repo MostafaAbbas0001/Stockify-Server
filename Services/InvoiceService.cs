@@ -381,6 +381,9 @@ public class InvoiceService
             throw new KeyNotFoundException($"Invoice {invoiceId} not found.");
         if (invoice.InvoiceStatusId == await _lookups.IdAsync<InvoiceStatus>(InvoiceStatusCodes.Void))
             throw new ArgumentException("Invoice is void and cannot be returned.");
+        // D18: a return refunds money, so there must be money to refund; an unpaid order is cancelled instead.
+        if (!await _db.Payments.AnyAsync(p => p.InvoiceId == invoiceId))
+            throw new ArgumentException("Nothing has been paid on this invoice; cancel the order instead of returning it.");
 
         var lineIds = req.Items.Select(x => x.InvoiceItemId).Distinct().ToList();
         var lines = await _db.InvoiceItems

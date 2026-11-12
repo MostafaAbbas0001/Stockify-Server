@@ -6,6 +6,7 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
     {
         // Order numbers are assigned per tenant by DocumentNumberService (ORD-1, ORD-2, ...).
         builder.Property(o => o.OrderNumber).HasMaxLength(50);
+        builder.Property(o => o.CancelReason).HasMaxLength(500);
         builder.HasIndex(o => new { o.TenantId, o.OrderNumber }).IsUnique();
         builder.HasIndex(order => order.CreatedAt);
         builder.HasOne(o => o.DeliveryLocation).WithMany().HasForeignKey(o => o.DeliveryLocationId);
