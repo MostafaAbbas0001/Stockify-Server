@@ -122,9 +122,10 @@ public sealed class ApiFixture : IAsyncLifetime
     }
 
     /// <summary>Provisions a company through the platform API and returns a client signed in as its owner.</summary>
-    public async Task<TestTenant> NewTenantAsync(string name, string businessType = "RETAIL", decimal taxRate = 0.11m)
+    public async Task<TestTenant> NewTenantAsync(string name, string businessType = "RETAIL", decimal taxRate = 0.11m, decimal? secondCurrencyRate = null)
     {
-        var slug = $"{name.ToLowerInvariant().Replace(' ', '-')}-{Guid.NewGuid():N}"[..40];
+        var slug = $"{name.ToLowerInvariant().Replace(' ', '-')}-{Guid.NewGuid():N}";
+        slug = slug.Length > 40 ? slug[..40] : slug;
         var ownerEmail = $"owner-{Guid.NewGuid():N}@test.local";
         using var platform = As(await PlatformLoginAsync());
         var response = await platform.PostAsJsonAsync("/api/platform/tenants", new
@@ -137,6 +138,9 @@ public sealed class ApiFixture : IAsyncLifetime
             ownerEmail,
             ownerPassword = Password,
             baseCurrency = new { code = "USD", name = "US Dollar", symbol = "$", exchangeRate = 1 },
+            additionalCurrencies = secondCurrencyRate is decimal rate
+                ? new[] { new { code = "LBP", name = "Lebanese Pound", symbol = "LL", exchangeRate = rate } }
+                : Array.Empty<object>(),
             taxName = "VAT",
             taxRate,
         });
@@ -189,6 +193,42 @@ public sealed class TestTenant
             adjust.EnsureSuccessStatusCode();
         }
         return (variantId, lotId, barcode);
+    }
+
+    /// <summary>An active promotion (PERCENTAGE or FIXED_AMOUNT) returning its id.</summary>
+    public async Task<int> SaleAsync(string typeCode, decimal value)
+    {
+        var saleTypeId = await LookupIdAsync("saleTypes", typeCode);
+        return await IdOf(await Owner.PostAsJsonAsync("/api/sales", new
+        {
+            name = $"Sale {Guid.NewGuid():N}"[..16], saleTypeId, value,
+            startDate = DateTime.UtcNow.AddDays(-1), endDate = DateTime.UtcNow.AddDays(1),
+        }));
+    }
+
+    public async Task AssignSaleAsync(int variantId, int saleId)
+    {
+        var response = await Owner.PatchAsJsonAsync($"/api/product-variants/{variantId}", new { saleId });
+        response.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Places an order with an order-level discount; returns (orderId, invoiceId).</summary>
+    public async Task<(int orderId, int invoiceId)> OrderWithDiscountAsync(string discountTypeCode, decimal discountValue, params (int variantId, int quantity)[] lines)
+    {
+        var response = await Owner.PostAsJsonAsync("/api/orders", new
+        {
+            customerId = await WalkInCustomerIdAsync(),
+            deliveryLocationId = await InStoreLocationIdAsync(),
+            createdByEmployeeId = await SalespersonAsync(),
+            discountTypeId = await LookupIdAsync("discountTypes", discountTypeCode),
+            discountValue,
+            items = lines.Select(l => new { productVariantId = l.variantId, quantity = l.quantity }),
+        });
+        var text = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"POST /api/orders -> {(int)response.StatusCode}: {text}");
+        var body = JsonDocument.Parse(text).RootElement;
+        return (body.GetProperty("orderId").GetInt32(), body.GetProperty("invoiceId").GetInt32());
     }
 
     /// <summary>A salesperson at the main branch.</summary>

@@ -278,79 +278,93 @@ public class InvoiceService
             .Select(s => new { s.Id, s.Code, s.Name, s.Tone });
     }
 
+    /// <summary>One cent of base currency: a remainder this small counts as settled (D19), because a
+    /// second-currency cash note cannot match a base-currency total to the cent.</summary>
+    private const decimal SettlementTolerance = 0.01m;
+
     public async Task<object> AddPaymentAsync(
         int invoiceId,
         RecordPaymentRequest recordPaymentDto)
     {
-        var invoice = await _db.Invoices
-          .FirstOrDefaultAsync(i => i.Id == invoiceId);
+        if (recordPaymentDto.Amount < 0.01m || recordPaymentDto.Amount != Pricing.Round2(recordPaymentDto.Amount))
+            throw new ArgumentException("Payment amount must be at least 0.01 and have at most two decimals.");
+        if (recordPaymentDto.Tendered is decimal tendered && tendered < recordPaymentDto.Amount)
+            throw new ArgumentException("Tendered amount cannot be less than the payment amount.");
 
-        if (invoice == null)
-          throw new KeyNotFoundException($"Invoice {invoiceId} not found.");
-
-        // Validate currency and convert amounts to base currency using ExchangeRate
         var paymentCurrency = await _db.Currencies
             .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.Id == recordPaymentDto.CurrencyId && c.IsActive);
-
-        if (paymentCurrency == null)
-            throw new ArgumentException("Invalid or inactive currency.");
+            .FirstOrDefaultAsync(c => c.Id == recordPaymentDto.CurrencyId && c.IsActive)
+            ?? throw new ArgumentException("Invalid or inactive currency.");
 
         if (await _lookups.FindAsync<PaymentMethod>(recordPaymentDto.PaymentMethodId) == null)
             throw new ArgumentException($"Payment method {recordPaymentDto.PaymentMethodId} does not exist.");
 
-        decimal ConvertToBase(decimal amount, decimal rate)
+        // Serializable + retry: two tills paying the same invoice at once can never both succeed.
+        return await SerializableTransactions.RunAsync(_db, async () =>
+        {
+            var invoice = await _db.Invoices
+                .Include(i => i.InvoiceStatus)
+                .FirstOrDefaultAsync(i => i.Id == invoiceId)
+                ?? throw new KeyNotFoundException($"Invoice {invoiceId} not found.");
+
+            if (invoice.InvoiceStatus.Code is not (InvoiceStatusCodes.Issued or InvoiceStatusCodes.PartiallyPaid))
+                throw new ArgumentException($"Invoice {invoice.InvoiceNumber} is {invoice.InvoiceStatus.Name.ToLowerInvariant()} and cannot take payments.");
+
+            var existingPayments = await _db.Payments
+                .Include(p => p.Currency)
+                .Where(p => p.InvoiceId == invoiceId)
+                .ToListAsync();
+
+            var paidAmountBase = existingPayments.Sum(p => ConvertToBase(p.Amount, p.Currency.ExchangeRate));
+            var incomingAmountBase = ConvertToBase(recordPaymentDto.Amount, paymentCurrency.ExchangeRate);
+            var remainingBase = invoice.TotalAmount - paidAmountBase;
+
+            if (remainingBase <= SettlementTolerance)
+                throw new ArgumentException($"Invoice {invoice.InvoiceNumber} is already paid.");
+            if (incomingAmountBase > remainingBase + SettlementTolerance)
+                throw new ArgumentException($"Payment amount is greater than the remaining amount ({remainingBase:0.00}).");
+
+            _db.Payments.Add(new Payment
+            {
+                InvoiceId = invoiceId,
+                Amount = recordPaymentDto.Amount,
+                PaymentMethodId = recordPaymentDto.PaymentMethodId,
+                Reference = recordPaymentDto.Reference,
+                CurrencyId = recordPaymentDto.CurrencyId,
+                PaidAt = DateTime.UtcNow
+            });
+
+            var newPaidTotalBase = paidAmountBase + incomingAmountBase;
+            var fullyPaid = invoice.TotalAmount - newPaidTotalBase <= SettlementTolerance;
+            invoice.InvoiceStatusId = await _lookups.IdAsync<InvoiceStatus>(
+                fullyPaid ? InvoiceStatusCodes.FullyPaid : InvoiceStatusCodes.PartiallyPaid);
+
+            var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == invoice.OrderId);
+            if (order != null)
+            {
+                order.OrderStatusId = await _lookups.IdAsync<OrderStatus>(
+                    fullyPaid ? OrderStatusCodes.FullyPaid : OrderStatusCodes.PartiallyPaid);
+            }
+
+            await _db.SaveChangesAsync();
+
+            return new
+            {
+                invoiceId,
+                invoice.InvoiceNumber,
+                paidAmountBase = newPaidTotalBase,
+                remainingBase = Math.Max(0m, Pricing.Round2(invoice.TotalAmount - newPaidTotalBase)),
+                fullyPaid,
+                // Change is in the payment's own currency (cash handed back at the till).
+                change = Pricing.Round2((recordPaymentDto.Tendered ?? recordPaymentDto.Amount) - recordPaymentDto.Amount)
+            };
+        });
+
+        static decimal ConvertToBase(decimal amount, decimal rate)
         {
             if (rate <= 0) throw new InvalidOperationException("Exchange rate must be greater than zero.");
-            return Math.Round(amount / rate, 2, MidpointRounding.AwayFromZero);
+            return Pricing.Round2(amount / rate);
         }
-
-        var existingPayments = await _db.Payments
-            .Include(p => p.Currency)
-            .Where(p => p.InvoiceId == invoiceId)
-            .ToListAsync();
-
-        var paidAmountBase = existingPayments.Sum(p => ConvertToBase(p.Amount, p.Currency.ExchangeRate));
-        var incomingAmountBase = ConvertToBase(recordPaymentDto.Amount, paymentCurrency.ExchangeRate);
-
-        if (invoice.TotalAmount <= paidAmountBase)
-            throw new ArgumentException($"Invoice {invoiceId} is already paid.");
-
-        if (incomingAmountBase > invoice.TotalAmount - paidAmountBase)
-            throw new ArgumentException($"Payment amount is greater than the remaining amount.");
-
-        var payment = new Payment
-        {
-          InvoiceId = invoiceId,
-          Amount = recordPaymentDto.Amount,
-          PaymentMethodId = recordPaymentDto.PaymentMethodId,
-          Reference = recordPaymentDto.Reference,
-          CurrencyId = recordPaymentDto.CurrencyId,
-          PaidAt = DateTime.UtcNow
-        };
-
-        await _db.Payments.AddAsync(payment);
-
-        var newPaidTotalBase = paidAmountBase + incomingAmountBase;
-        var fullyPaid = newPaidTotalBase >= invoice.TotalAmount;
-        invoice.InvoiceStatusId = await _lookups.IdAsync<InvoiceStatus>(
-            fullyPaid ? InvoiceStatusCodes.FullyPaid : InvoiceStatusCodes.PartiallyPaid);
-
-        var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == invoice.OrderId);
-        if (order != null)
-        {
-          order.OrderStatusId = await _lookups.IdAsync<OrderStatus>(
-            fullyPaid ? OrderStatusCodes.FullyPaid : OrderStatusCodes.PartiallyPaid);
-        }
-
-        await _db.SaveChangesAsync();
-
-        return new
-        {
-          invoiceId,
-          invoice.InvoiceNumber,
-          paidAmountBase = newPaidTotalBase
-        };
     }
 
     public async Task<object> ReturnInvoiceAsync(
