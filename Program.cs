@@ -201,3 +201,6 @@ app.Lifetime.ApplicationStarted.Register(() =>
     Log.ForContext("SourceContext", "ServerLifecycle").Information("Stockify server started"));
 
 app.Run();
+
+// Lets the integration tests host the API with WebApplicationFactory<Program>.
+public partial class Program;

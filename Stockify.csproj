@@ -13,6 +13,8 @@
   <PropertyGroup>
     <RootNamespace>Stockify</RootNamespace>
     <UseAppHost>false</UseAppHost>
+    <!-- The test project lives under Tests/ and must not be compiled into the API. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);Tests/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
