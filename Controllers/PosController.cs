@@ -24,5 +24,12 @@ public class PosController : ControllerBase
 
         return Ok(result);
     }
+
+    /// <summary>Prices a cart the way the order will be priced, so the till never shows a different total.</summary>
+    [HttpPost("preview")]
+    public async Task<IActionResult> Preview([FromBody] CartPreviewRequest dto)
+    {
+        return Ok(await _posService.PreviewAsync(dto));
+    }
 }
 

@@ -90,81 +90,20 @@ public class OrderService
         if (shortages.Count > 0)
             throw new ArgumentException("Insufficient stock.");
 
-        // Price calculations with sales (snapshot for invoice)
-        static decimal Round2(decimal x) => Math.Round(x, 2, MidpointRounding.AwayFromZero);
-
         // Order-level extra discount; no discount type means "none".
         var discountType = dto.DiscountTypeId is int discountTypeId
             ? await _lookups.FindAsync<DiscountType>(discountTypeId)
                 ?? throw new ArgumentException($"Discount type {discountTypeId} does not exist.")
             : (await _lookups.ListAsync<DiscountType>()).First(type => type.Code == DiscountTypeCodes.None);
 
-        // helper for extra discount (percent/amount) computed server-side
-        static decimal ComputeExtraDiscount(decimal baseAmount, string typeCode, decimal v)
-        {
-            if (baseAmount <= 0) return 0m;
-
-            if (typeCode == DiscountTypeCodes.Percent)
-            {
-                if (v < 0) v = 0;
-                if (v > 100) v = 100;
-                return Round2(baseAmount * (v / 100m));
-            }
-            if (typeCode == DiscountTypeCodes.Amount)
-            {
-                if (v < 0) v = 0;
-                return Round2(Math.Min(v, baseAmount));
-            }
-            return 0m;
-        }
-
+        // Every amount comes from Pricing so the POS preview and the invoice always agree.
         var now = DateTime.UtcNow;
-
         var lineCalcs = itemGroups.Select(g =>
         {
-            var v = variants.First(x => x.Id == g.VariantId);
-            var basePrice = v.Price;
-
-            // Determine if sale is active
-            var s = v.Sale;
-            bool isActive =
-                s != null &&
-                !s.IsDeleted &&
-                (!s.StartDate.HasValue || s.StartDate <= now) &&
-                (!s.EndDate.HasValue || now <= s.EndDate);
-
-            decimal perUnitSaleAmount = 0m;
-            if (isActive && s != null)
-            {
-                if (s.SaleType.Code == SaleTypeCodes.Percentage)
-                    perUnitSaleAmount = Round2(basePrice * s.Value / 100m);
-                else // FixedAmount
-                    perUnitSaleAmount = Round2(Math.Min(s.Value, basePrice));
-            }
-
-            if (perUnitSaleAmount > basePrice) perUnitSaleAmount = basePrice;
-
-            var finalUnitPrice = Round2(basePrice - perUnitSaleAmount);
-            var lineGross = Round2(basePrice * g.Quantity);
-            var lineSale = Round2(perUnitSaleAmount * g.Quantity);
-            var lineNet = Round2(finalUnitPrice * g.Quantity);
-
-            return new
-            {
-                g.VariantId,
-                g.Quantity,
-                BaseUnitPrice = basePrice,
-                PerUnitSaleAmount = perUnitSaleAmount,
-                FinalUnitPrice = finalUnitPrice,
-                LineGross = lineGross,
-                LineSale = lineSale,
-                LineNet = lineNet
-            };
+            var variant = variants.First(x => x.Id == g.VariantId);
+            return new Pricing.Line(g.VariantId, g.Quantity, variant.Price, Pricing.PerUnitSaleAmount(variant.Price, variant.Sale, now));
         }).ToList();
-
-        var grossSubtotal = Round2(lineCalcs.Sum(x => x.LineGross)); // before sales
-        var totalSaleAmount = Round2(lineCalcs.Sum(x => x.LineSale)); // sum of all line sale amounts
-        var netSubtotal = Round2(lineCalcs.Sum(x => x.LineNet));      // after sales (for reference)
+        var totals = Pricing.OrderTotals(lineCalcs, discountType.Code, dto.DiscountValue, taxRate, deliveryCharge.Fee);
 
         using var tx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
 
@@ -173,13 +112,6 @@ public class OrderService
         if (itemGroups.Any(item =>
                 currentStock.GetValueOrDefault(item.VariantId) < item.Quantity))
             throw new ArgumentException("Insufficient stock.");
-
-        // === Discount & totals ===
-        // EXTRA DISCOUNT MUST BE FROM THE FULL SUBTOTAL (not subtotal - sale)
-        var extraDiscount = ComputeExtraDiscount(grossSubtotal, discountType.Code, dto.DiscountValue);
-
-        // TAX on the full SUBTOTAL (pre discounts), per your requirement
-        var taxAmount = Round2(grossSubtotal * taxRate);
 
         // Always set initial order status to Draft - payment will be handled separately
         var order = new Order
@@ -238,8 +170,6 @@ public class OrderService
             }
         }
 
-        var total = Round2(grossSubtotal + taxAmount + deliveryCharge.Fee - totalSaleAmount - extraDiscount);
-        
         var invoice = new Invoice
         {
             InvoiceNumber = await _documentNumbers.NextAsync(DocumentPrefixes.Invoice),
@@ -247,17 +177,17 @@ public class OrderService
             IssuedAt = DateTime.UtcNow,
 
             TaxRateId = taxRateEntity.Id,
-            DeliveryChargeAmount = deliveryCharge.Fee,
+            DeliveryChargeAmount = totals.DeliveryFee,
 
-            Subtotal = grossSubtotal,       // before any discounts
-            SaleAmount = totalSaleAmount,   // item-level sales/promos
+            Subtotal = totals.GrossSubtotal,   // before any discounts
+            SaleAmount = totals.SaleAmount,    // item-level promotions
 
             DiscountTypeId = discountType.Id,
             DiscountValue = dto.DiscountValue,
-            DiscountAmount = extraDiscount, // computed from FULL subtotal
+            DiscountAmount = totals.DiscountAmount,
 
-            TaxAmount = taxAmount,
-            TotalAmount = total,
+            TaxAmount = totals.TaxAmount,
+            TotalAmount = totals.Total,
 
             InvoiceStatusId = await _lookups.IdAsync<InvoiceStatus>(InvoiceStatusCodes.Issued)
         };
