@@ -8,7 +8,7 @@ public class ProductVariantConfiguration : IEntityTypeConfiguration<ProductVaria
         builder.Property(variant => variant.Price).HasPrecision(18, 2);
         builder.Property(variant => variant.CreatedAt).HasDefaultValueSql("NOW()");
         builder.Property(variant => variant.IsSellable).HasDefaultValue(true);
-        builder.HasIndex(variant => variant.CreatedAt);
+        builder.HasIndex(variant => new { variant.TenantId, variant.CreatedAt });
         builder.HasIndex(variant => new { variant.TenantId, variant.SKU }).IsUnique();
         builder.HasIndex(variant => new { variant.TenantId, variant.Barcode })
             .IsUnique()

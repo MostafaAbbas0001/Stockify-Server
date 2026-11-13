@@ -8,6 +8,6 @@ public class StockMovementConfiguration : IEntityTypeConfiguration<StockMovement
         builder.HasOne(movement => movement.Branch).WithMany().HasForeignKey(movement => movement.BranchId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(movement => movement.ToBranch).WithMany().HasForeignKey(movement => movement.ToBranchId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(movement => movement.MovementType).WithMany().HasForeignKey(movement => movement.MovementTypeId).OnDelete(DeleteBehavior.Restrict);
-        builder.HasIndex(movement => movement.CreatedAt);
+        builder.HasIndex(movement => new { movement.TenantId, movement.CreatedAt });
     }
 }

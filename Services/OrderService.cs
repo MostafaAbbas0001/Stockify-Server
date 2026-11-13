@@ -522,11 +522,8 @@ public class OrderService
                         .OrderByDescending(i => i.Id)
                         .Select(i => i.Id)
                         .FirstOrDefault() == p.InvoiceId)
-                    .Include(p => p.Currency)
-                    .AsEnumerable()
-                    .Sum(p => p.Currency != null && p.Currency.ExchangeRate > 0
-                        ? p.Amount / p.Currency.ExchangeRate
-                        : p.Amount),
+                    // Summed in SQL, converted to base currency (one query, no per-row round trip).
+                    .Sum(p => (decimal?)(p.Amount / p.Currency.ExchangeRate)) ?? 0m,
                 Payments = _db.Payments
                     .Where(p => _db.Invoices
                         .Where(i => i.OrderId == o.Id)

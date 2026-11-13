@@ -6,7 +6,7 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
     {
         builder.Property(product => product.ImageUrl).HasMaxLength(2048);
         builder.Property(product => product.CreatedAt).HasDefaultValueSql("NOW()");
-        builder.HasIndex(product => product.CreatedAt);
+        builder.HasIndex(product => new { product.TenantId, product.CreatedAt });
 
         // Which attributes (Size, Colour, ...) the product's variants choose values for.
         builder.HasMany(product => product.Attributes)

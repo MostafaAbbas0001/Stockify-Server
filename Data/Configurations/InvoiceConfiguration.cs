@@ -6,7 +6,7 @@ public class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
     {
         builder.Property(i => i.InvoiceNumber).HasMaxLength(50);
         builder.HasIndex(i => new { i.TenantId, i.InvoiceNumber }).IsUnique();
-        builder.HasIndex(invoice => invoice.IssuedAt);
+        builder.HasIndex(invoice => new { invoice.TenantId, invoice.IssuedAt });
         builder.HasOne(i => i.TaxRate).WithMany(tr => tr.Invoices).HasForeignKey(i => i.TaxRateId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(i => i.InvoiceStatus).WithMany().HasForeignKey(i => i.InvoiceStatusId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(i => i.DiscountType).WithMany().HasForeignKey(i => i.DiscountTypeId).OnDelete(DeleteBehavior.Restrict);

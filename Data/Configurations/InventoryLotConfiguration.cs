@@ -10,6 +10,6 @@ public class InventoryLotConfiguration : IEntityTypeConfiguration<InventoryLot>
         builder.Property(lot => lot.ReceivedAt).HasColumnType("timestamp with time zone");
         builder.HasOne(lot => lot.ProductVariant).WithMany(variant => variant.InventoryLots).HasForeignKey(lot => lot.ProductVariantId).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(lot => new { lot.ProductVariantId, lot.LotNumber }).IsUnique();
-        builder.HasIndex(lot => lot.ReceivedAt);
+        builder.HasIndex(lot => new { lot.TenantId, lot.ReceivedAt });
     }
 }

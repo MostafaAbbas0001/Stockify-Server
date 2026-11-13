@@ -455,9 +455,7 @@ namespace Stockify.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CreatedAt");
-
-                    b.HasIndex("TenantId");
+                    b.HasIndex("TenantId", "CreatedAt");
 
                     b.ToTable("Customers");
                 });
@@ -1058,12 +1056,10 @@ namespace Stockify.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ReceivedAt");
-
-                    b.HasIndex("TenantId");
-
                     b.HasIndex("ProductVariantId", "LotNumber")
                         .IsUnique();
+
+                    b.HasIndex("TenantId", "ReceivedAt");
 
                     b.ToTable("InventoryLots");
                 });
@@ -1133,14 +1129,14 @@ namespace Stockify.Migrations
 
                     b.HasIndex("InvoiceStatusId");
 
-                    b.HasIndex("IssuedAt");
-
                     b.HasIndex("OrderId");
 
                     b.HasIndex("TaxRateId");
 
                     b.HasIndex("TenantId", "InvoiceNumber")
                         .IsUnique();
+
+                    b.HasIndex("TenantId", "IssuedAt");
 
                     b.ToTable("Invoices");
                 });
@@ -1465,8 +1461,6 @@ namespace Stockify.Migrations
 
                     b.HasIndex("BranchId");
 
-                    b.HasIndex("CreatedAt");
-
                     b.HasIndex("CreatedByEmployeeId");
 
                     b.HasIndex("CustomerId");
@@ -1476,6 +1470,8 @@ namespace Stockify.Migrations
                     b.HasIndex("OrderStatusId");
 
                     b.HasIndex("OrderTypeId");
+
+                    b.HasIndex("TenantId", "CreatedAt");
 
                     b.HasIndex("TenantId", "OrderNumber")
                         .IsUnique();
@@ -2460,9 +2456,7 @@ namespace Stockify.Migrations
 
                     b.HasIndex("CategoryId");
 
-                    b.HasIndex("CreatedAt");
-
-                    b.HasIndex("TenantId");
+                    b.HasIndex("TenantId", "CreatedAt");
 
                     b.ToTable("Products");
                 });
@@ -2567,8 +2561,6 @@ namespace Stockify.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CreatedAt");
-
                     b.HasIndex("ProductId");
 
                     b.HasIndex("SaleId");
@@ -2576,6 +2568,8 @@ namespace Stockify.Migrations
                     b.HasIndex("TenantId", "Barcode")
                         .IsUnique()
                         .HasFilter("\"Barcode\" IS NOT NULL");
+
+                    b.HasIndex("TenantId", "CreatedAt");
 
                     b.HasIndex("TenantId", "SKU")
                         .IsUnique();
@@ -3813,17 +3807,15 @@ namespace Stockify.Migrations
 
                     b.HasIndex("BranchId");
 
-                    b.HasIndex("CreatedAt");
-
                     b.HasIndex("InventoryLotId");
 
                     b.HasIndex("MovementTypeId");
 
                     b.HasIndex("ProductVariantId");
 
-                    b.HasIndex("TenantId");
-
                     b.HasIndex("ToBranchId");
+
+                    b.HasIndex("TenantId", "CreatedAt");
 
                     b.ToTable("StockMovements");
                 });
