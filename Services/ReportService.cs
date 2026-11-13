@@ -344,6 +344,7 @@ public class ReportService
             .Include(i => i.InvoiceStatus)
             .Include(i => i.Payments)
             .Where(i => i.Order.BranchId == branchId && i.IssuedAt >= rangeStartUtc && i.IssuedAt < rangeEndUtc)
+            .Where(i => i.InvoiceStatus.Code != InvoiceStatusCodes.Void)
             .Select(i => new
             {
                 Date = i.IssuedAt,
@@ -353,9 +354,9 @@ public class ReportService
                 Subtotal = i.Subtotal,
                 Tax = i.TaxAmount,
                 Delivery = i.DeliveryChargeAmount,
-                Discount = i.DiscountAmount,
+                Discount = i.SaleAmount + i.DiscountAmount,
                 Total = i.TotalAmount,
-                Paid = i.Payments.Sum(p => p.Amount),
+                Paid = Math.Round(i.Payments.Sum(p => (decimal?)(p.Amount / p.Currency.ExchangeRate)) ?? 0m, 2),
                 Status = i.InvoiceStatus != null ? i.InvoiceStatus.Name : string.Empty
             })
             .OrderByDescending(i => i.Date)
@@ -486,6 +487,7 @@ public class ReportService
             .Include(i => i.Payments)
             .Include(i => i.InvoiceStatus)
             .Where(i => i.Order.CreatedByEmployeeId == employeeId && i.IssuedAt >= rangeStartUtc && i.IssuedAt < rangeEndUtc)
+            .Where(i => i.InvoiceStatus.Code != InvoiceStatusCodes.Void)
             .Select(i => new
             {
                 Date = i.IssuedAt,
@@ -496,9 +498,9 @@ public class ReportService
                 Subtotal = i.Subtotal,
                 Tax = i.TaxAmount,
                 Delivery = i.DeliveryChargeAmount,
-                Discount = i.DiscountAmount,
+                Discount = i.SaleAmount + i.DiscountAmount,
                 Total = i.TotalAmount,
-                Paid = i.Payments.Sum(p => p.Amount),
+                Paid = Math.Round(i.Payments.Sum(p => (decimal?)(p.Amount / p.Currency.ExchangeRate)) ?? 0m, 2),
                 Status = i.InvoiceStatus != null ? i.InvoiceStatus.Name : string.Empty
             })
             .ToListAsync(ct);

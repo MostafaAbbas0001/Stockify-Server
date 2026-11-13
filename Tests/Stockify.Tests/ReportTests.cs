@@ -65,6 +65,40 @@ public class ReportTests
         }
     }
 
+    /// <summary>Review I5: branch and staff performance sheets had the same bugs as the sales sheets.</summary>
+    [Fact]
+    public async Task Branch_performance_rows_add_up_exclude_void_and_convert_currency()
+    {
+        var tenant = await _api.NewTenantAsync("Branch Perf Co", secondCurrencyRate: 89500m);
+        var (jacket, _, _) = await tenant.VariantWithStockAsync(price: 129.99m, stock: 10);
+        var (shirt, _, _) = await tenant.VariantWithStockAsync(price: 10.00m, stock: 10);
+        await tenant.AssignSaleAsync(jacket, await tenant.SaleAsync(SaleTypeCodes.Percentage, 20m));
+        var currencies = await tenant.Owner.GetFromJsonAsync<JsonElement>("/api/currencies");
+        var lbp = currencies.EnumerateArray().First(c => c.GetProperty("code").GetString() == "LBP").GetProperty("id").GetInt32();
+        var (_, promoted) = await tenant.OrderAsync((jacket, 1));
+        await PayAsync(tenant, promoted, 115.43m, await tenant.BaseCurrencyIdAsync());
+        var (_, paidInLbp) = await tenant.OrderAsync((shirt, 1));
+        await PayAsync(tenant, paidInLbp, 993450m, lbp);
+        var (cancelled, _) = await tenant.OrderAsync((shirt, 1));
+        (await tenant.Owner.PostAsJsonAsync($"/api/orders/{cancelled}/cancel", new { reason = "test" })).EnsureSuccessStatusCode();
+        var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+
+        var response = await tenant.Owner.GetAsync($"/api/reports/branch-performance?startDate={today}&endDate={today}&branchId={tenant.BranchId}");
+        response.EnsureSuccessStatusCode();
+        var detail = new XLWorkbook(await response.Content.ReadAsStreamAsync()).Worksheets
+            .First(sheet => sheet.Row(1).CellsUsed().Any(cell => cell.GetString() == "Invoice #"));
+        var col = Columns(detail);
+        var rows = detail.RowsUsed().Skip(1).ToList();
+
+        Assert.Equal(2, rows.Count);
+        foreach (var row in rows)
+        {
+            decimal Value(string header) => row.Cell(col[header]).GetValue<decimal>();
+            Assert.Equal(Value("Total"), Value("Subtotal") - Value("Discount") + Value("Tax") + Value("Delivery"));
+            Assert.Equal(Value("Total"), Value("Paid"));
+        }
+    }
+
     /// <summary>Audit F-08: stock on hand counted units in expired lots as sellable.</summary>
     [Fact]
     public async Task Stock_on_hand_excludes_expired_lots()
