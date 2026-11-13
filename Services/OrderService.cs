@@ -32,68 +32,74 @@ public class OrderService
         _ => Array.Empty<string>()
     };
 
+    /// <summary>
+    /// Places an order at the given branch: validates and prices it (Pricing), then in one
+    /// serializable transaction re-checks stock, writes the order, takes the stock FEFO and issues
+    /// the invoice. Joins the caller's transaction when there is one (checkout).
+    /// </summary>
     public async Task<PlacedOrder> PlaceOrderAsync(CreateOrderRequest dto, int branchId)
+    {
+        var sale = await PrepareSaleAsync(dto, branchId);
+
+        // Serializable + retry: two tills selling the last unit cannot both succeed, and the loser gets a
+        // clean "Insufficient stock" on the retry.
+        return await SerializableTransactions.RunAsync(_db, async () =>
+        {
+            await EnsureStockAsync(branchId, sale.Lines);
+            var order = await CreateOrderAsync(dto, branchId, sale);
+            await TakeStockAsync(order);
+            var invoice = await CreateInvoiceAsync(order, sale, dto.DiscountValue);
+            return new PlacedOrder(order.Id, invoice.Id, invoice.InvoiceNumber, invoice.TotalAmount);
+        });
+    }
+
+    /// <summary>Everything an order needs that is read before the transaction starts.</summary>
+    private sealed record PreparedSale(
+        DeliveryLocation Location,
+        int TaxRateId,
+        DiscountType DiscountType,
+        IReadOnlyList<Pricing.Line> Lines,
+        Pricing.Totals Totals);
+
+    /// <summary>Validates every id in the request (tenant-filtered) and prices the cart.</summary>
+    private async Task<PreparedSale> PrepareSaleAsync(CreateOrderRequest dto, int branchId)
     {
         if (dto.Items == null || dto.Items.Count == 0)
             throw new ArgumentException("Order must have at least one item.");
 
-        var customer = await _db.Customers.FindAsync(dto.CustomerId);
-        if (customer == null)
+        if (await _db.Customers.FindAsync(dto.CustomerId) == null)
             throw new ArgumentException($"Customer with ID {dto.CustomerId} not found.");
 
-        var deliveryCharge = await _db.DeliveryLocations
+        var location = await _db.DeliveryLocations
             .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == dto.DeliveryLocationId);
-        if (deliveryCharge == null)
-            throw new ArgumentException($"No delivery fee found for DeliveryChargeId={dto.DeliveryLocationId}.");
+            .FirstOrDefaultAsync(x => x.Id == dto.DeliveryLocationId)
+            ?? throw new ArgumentException($"No delivery fee found for DeliveryChargeId={dto.DeliveryLocationId}.");
 
-        // Validate employee exists
-        var employee = await _db.Employees.FindAsync(dto.CreatedByEmployeeId);
-        if (employee == null)
+        if (await _db.Employees.FindAsync(dto.CreatedByEmployeeId) == null)
             throw new ArgumentException($"Employee with ID {dto.CreatedByEmployeeId} not found.");
 
-        var taxRateEntity = await _db.TaxRates.FirstOrDefaultAsync(t => t.IsDefault);
-        if (taxRateEntity == null)
-            throw new KeyNotFoundException("No default tax rate is configured for this company.");
-        var taxRate = taxRateEntity.Rate;
+        var taxRate = await _db.TaxRates.FirstOrDefaultAsync(t => t.IsDefault)
+            ?? throw new KeyNotFoundException("No default tax rate is configured for this company.");
 
         var itemGroups = dto.Items
             .GroupBy(i => i.ProductVariantId)
             .Select(g => new { VariantId = g.Key, Quantity = g.Sum(x => x.Quantity) })
             .ToList();
-
         if (itemGroups.Any(g => g.Quantity <= 0))
             throw new ArgumentException("Each item quantity must be > 0.");
 
         var variantIds = itemGroups.Select(g => g.VariantId).ToList();
-
-        // Include Sale so we can compute prices correctly
         var variants = await _db.ProductVariants
             .Include(v => v.Sale)
                 .ThenInclude(sale => sale!.SaleType)
             .Where(v => variantIds.Contains(v.Id))
             .ToListAsync();
-
         if (variants.Count != variantIds.Count)
         {
             var missing = string.Join(", ", variantIds.Except(variants.Select(v => v.Id)));
             throw new ArgumentException($"One or more variants not found: {missing}");
         }
 
-        // Stock checks from user's branch
-        var stockLevels = await _inventory.GetAvailableQuantitiesAsync(branchId, variantIds);
-
-        var shortages = new List<string>();
-        foreach (var g in itemGroups)
-        {
-            var available = stockLevels.GetValueOrDefault(g.VariantId, 0);
-            if (available < g.Quantity)
-                shortages.Add($"Variant {g.VariantId} has only {available} in stock, requested {g.Quantity}.");
-        }
-        if (shortages.Count > 0)
-            throw new ArgumentException("Insufficient stock.");
-
-        // Order-level extra discount; no discount type means "none".
         var discountType = dto.DiscountTypeId is int discountTypeId
             ? await _lookups.FindAsync<DiscountType>(discountTypeId)
                 ?? throw new ArgumentException($"Discount type {discountTypeId} does not exist.")
@@ -101,55 +107,59 @@ public class OrderService
 
         // Every amount comes from Pricing so the POS preview and the invoice always agree.
         var now = DateTime.UtcNow;
-        var lineCalcs = itemGroups.Select(g =>
+        var lines = itemGroups.Select(g =>
         {
             var variant = variants.First(x => x.Id == g.VariantId);
             return new Pricing.Line(g.VariantId, g.Quantity, variant.Price, Pricing.PerUnitSaleAmount(variant.Price, variant.Sale, now));
         }).ToList();
-        var totals = Pricing.OrderTotals(lineCalcs, discountType.Code, dto.DiscountValue, taxRate, deliveryCharge.Fee);
+        var totals = Pricing.OrderTotals(lines, discountType.Code, dto.DiscountValue, taxRate.Rate, location.Fee);
 
-        // Serializable + retry: two tills selling the last unit cannot both succeed, and the loser gets a
-        // clean "Insufficient stock" on the retry. Joins the caller's transaction when there is one (checkout).
-        return await SerializableTransactions.RunAsync(_db, async () =>
-        {
-        // Recheck stock inside the transaction
-        var currentStock = await _inventory.GetAvailableQuantitiesAsync(branchId, variantIds);
-        if (itemGroups.Any(item =>
-                currentStock.GetValueOrDefault(item.VariantId) < item.Quantity))
+        // Fail fast before opening the transaction; EnsureStockAsync re-checks inside it.
+        await EnsureStockAsync(branchId, lines);
+
+        return new PreparedSale(location, taxRate.Id, discountType, lines, totals);
+    }
+
+    private async Task EnsureStockAsync(int branchId, IReadOnlyList<Pricing.Line> lines)
+    {
+        var available = await _inventory.GetAvailableQuantitiesAsync(branchId, lines.Select(l => l.VariantId).ToList());
+        if (lines.Any(line => available.GetValueOrDefault(line.VariantId) < line.Quantity))
             throw new ArgumentException("Insufficient stock.");
+    }
 
-        // Always set initial order status to Draft - payment will be handled separately
+    /// <summary>Writes the order (DRAFT; payment is recorded separately) and its items.</summary>
+    private async Task<Order> CreateOrderAsync(CreateOrderRequest dto, int branchId, PreparedSale sale)
+    {
         var order = new Order
         {
             OrderNumber = await _documentNumbers.NextAsync(DocumentPrefixes.Order),
             OrderStatusId = await _lookups.IdAsync<OrderStatus>(OrderStatusCodes.Draft),
             OrderTypeId = await _lookups.IdAsync<OrderType>(
-                deliveryCharge.IsInStore ? OrderTypeCodes.Pos : OrderTypeCodes.Delivery),
-            CustomerId = customer.Id,
-            DeliveryLocationId = deliveryCharge.Id,
+                sale.Location.IsInStore ? OrderTypeCodes.Pos : OrderTypeCodes.Delivery),
+            CustomerId = dto.CustomerId,
+            DeliveryLocationId = sale.Location.Id,
             CreatedByEmployeeId = dto.CreatedByEmployeeId,
             CreatedAt = DateTime.UtcNow,
-            BranchId = branchId
+            BranchId = branchId,
+            OrderItems = sale.Lines.Select(line => new OrderItem
+            {
+                ProductVariantId = line.VariantId,
+                Quantity = line.Quantity
+            }).ToList()
         };
         _db.Orders.Add(order);
         await _db.SaveChangesAsync();
+        return order;
+    }
 
-        var orderItems = lineCalcs.Select(line => new OrderItem
-        {
-            OrderId = order.Id,
-            ProductVariantId = line.VariantId,
-            Quantity = line.Quantity
-        }).ToList();
-
-        _db.OrderItems.AddRange(orderItems);
-        await _db.SaveChangesAsync();
-
-        // Deduct FEFO and remember exactly which lots supplied each order item.
+    /// <summary>Takes each item's stock FEFO and remembers exactly which lots supplied it.</summary>
+    private async Task TakeStockAsync(Order order)
+    {
         var saleMovementTypeId = await _lookups.IdAsync<MovementType>(MovementTypeCodes.Sale);
-        foreach (var orderItem in orderItems)
+        foreach (var orderItem in order.OrderItems)
         {
             var allocations = await _inventory.DeductAvailableQuantityAsync(
-                branchId,
+                order.BranchId,
                 orderItem.ProductVariantId,
                 orderItem.Quantity);
 
@@ -166,7 +176,7 @@ public class OrderService
                 {
                     ProductVariantId = orderItem.ProductVariantId,
                     InventoryLotId = allocation.Key,
-                    BranchId = branchId,
+                    BranchId = order.BranchId,
                     MovementTypeId = saleMovementTypeId,
                     Quantity = -allocation.Value,
                     CreatedAt = DateTime.UtcNow,
@@ -174,40 +184,28 @@ public class OrderService
                 });
             }
         }
+    }
 
+    /// <summary>Issues the invoice with a price snapshot of every line.</summary>
+    private async Task<Invoice> CreateInvoiceAsync(Order order, PreparedSale sale, decimal discountValue)
+    {
         var invoice = new Invoice
         {
             InvoiceNumber = await _documentNumbers.NextAsync(DocumentPrefixes.Invoice),
             OrderId = order.Id,
             IssuedAt = DateTime.UtcNow,
-
-            TaxRateId = taxRateEntity.Id,
-            DeliveryChargeAmount = totals.DeliveryFee,
-
-            Subtotal = totals.GrossSubtotal,   // before any discounts
-            SaleAmount = totals.SaleAmount,    // item-level promotions
-
-            DiscountTypeId = discountType.Id,
-            DiscountValue = dto.DiscountValue,
-            DiscountAmount = totals.DiscountAmount,
-
-            TaxAmount = totals.TaxAmount,
-            TotalAmount = totals.Total,
-
-            InvoiceStatusId = await _lookups.IdAsync<InvoiceStatus>(InvoiceStatusCodes.Issued)
-        };
-
-        _db.Invoices.Add(invoice);
-
-        // Save first so invoice gets a real Id (needed for InvoiceItems FK)
-        await _db.SaveChangesAsync();
-
-        // Add invoice items
-        foreach (var line in lineCalcs)
-        {
-            _db.InvoiceItems.Add(new InvoiceItem
+            TaxRateId = sale.TaxRateId,
+            DeliveryChargeAmount = sale.Totals.DeliveryFee,
+            Subtotal = sale.Totals.GrossSubtotal,   // before any discounts
+            SaleAmount = sale.Totals.SaleAmount,    // item-level promotions
+            DiscountTypeId = sale.DiscountType.Id,
+            DiscountValue = discountValue,
+            DiscountAmount = sale.Totals.DiscountAmount,
+            TaxAmount = sale.Totals.TaxAmount,
+            TotalAmount = sale.Totals.Total,
+            InvoiceStatusId = await _lookups.IdAsync<InvoiceStatus>(InvoiceStatusCodes.Issued),
+            InvoiceItems = sale.Lines.Select(line => new InvoiceItem
             {
-                InvoiceId = invoice.Id,
                 ProductVariantId = line.VariantId,
                 Quantity = line.Quantity,
                 BaseUnitPrice = line.BaseUnitPrice,
@@ -216,13 +214,12 @@ public class OrderService
                 LineGross = line.LineGross,
                 LineSale = line.LineSale,
                 LineNet = line.LineNet
-            });
-        }
+            }).ToList()
+        };
 
+        _db.Invoices.Add(invoice);
         await _db.SaveChangesAsync();
-
-        return new PlacedOrder(order.Id, invoice.Id, invoice.InvoiceNumber, invoice.TotalAmount);
-        });
+        return invoice;
     }
 
     public async Task<object> UpdateOrderStatusAsync(
