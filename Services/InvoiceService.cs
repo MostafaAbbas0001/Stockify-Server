@@ -91,7 +91,7 @@ public class InvoiceService
                 PaidAmount = _db.Payments
                     .Where(p => p.InvoiceId == i.Id)
                     // Summed in SQL, converted to base currency (one query, no per-row round trip).
-                    .Sum(p => (decimal?)(p.Amount / p.Currency.ExchangeRate)) ?? 0m,
+                    .Sum(p => (decimal?)Math.Round(p.Amount / p.Currency.ExchangeRate, 2)) ?? 0m,
                 OrderNumber = i.Order != null ? i.Order.OrderNumber : null,
             })
             .ToListAsync();
@@ -260,7 +260,7 @@ public class InvoiceService
                 PaidAmount = _db.Payments
                     .Where(p => p.InvoiceId == i.Id)
                     // Summed in SQL, converted to base currency (one query, no per-row round trip).
-                    .Sum(p => (decimal?)(p.Amount / p.Currency.ExchangeRate)) ?? 0m
+                    .Sum(p => (decimal?)Math.Round(p.Amount / p.Currency.ExchangeRate, 2)) ?? 0m
             })
             .FirstOrDefaultAsync();
 

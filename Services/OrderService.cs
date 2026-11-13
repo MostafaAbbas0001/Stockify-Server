@@ -528,7 +528,7 @@ public class OrderService
                         .Select(i => i.Id)
                         .FirstOrDefault() == p.InvoiceId)
                     // Summed in SQL, converted to base currency (one query, no per-row round trip).
-                    .Sum(p => (decimal?)(p.Amount / p.Currency.ExchangeRate)) ?? 0m,
+                    .Sum(p => (decimal?)Math.Round(p.Amount / p.Currency.ExchangeRate, 2)) ?? 0m,
                 Payments = _db.Payments
                     .Where(p => _db.Invoices
                         .Where(i => i.OrderId == o.Id)
