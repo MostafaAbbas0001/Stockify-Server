@@ -49,6 +49,7 @@ public sealed class GlobalExceptionMiddleware
                 KeyNotFoundException => StatusCodes.Status404NotFound,
                 UnauthorizedAccessException => StatusCodes.Status401Unauthorized,
                 InvalidOperationException => StatusCodes.Status409Conflict,
+                _ when SerializableTransactions.IsSerializationFailure(ex) => StatusCodes.Status409Conflict,
                 _ => StatusCodes.Status500InternalServerError
             };
             context.Response.ContentType = "application/json";
@@ -66,7 +67,9 @@ public sealed class GlobalExceptionMiddleware
                 },
                 message = context.Response.StatusCode == StatusCodes.Status500InternalServerError
                     ? "An unexpected error occurred."
-                    : ex.Message,
+                    : SerializableTransactions.IsSerializationFailure(ex)
+                        ? "The system is busy with the same records; please try again."
+                        : ex.Message,
                 traceId
             };
 
