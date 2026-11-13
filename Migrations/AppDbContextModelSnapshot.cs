@@ -3167,6 +3167,511 @@ namespace Stockify.Migrations
                         {
                             RoleId = 1,
                             PermissionId = 95
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 76
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 29
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 30
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 31
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 77
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 33
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 78
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 34
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 70
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 71
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 89
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 5
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 10
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 13
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 1
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 74
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 25
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 61
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 41
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 32
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 35
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 69
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 72
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 73
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 36
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 37
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 38
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 39
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 40
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 79
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 26
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 27
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 28
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 90
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 82
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 88
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 64
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 75
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 93
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 67
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 66
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 91
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 5
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 6
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 7
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 82
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 10
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 9
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 12
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 1
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 2
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 3
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 80
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 13
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 14
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 15
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 81
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 17
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 18
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 19
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 83
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 21
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 22
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 23
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 84
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 41
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 42
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 43
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 85
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 44
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 87
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 54
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 55
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 56
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 57
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 58
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 59
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 86
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 52
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 93
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 45
+                        },
+                        new
+                        {
+                            RoleId = 3,
+                            PermissionId = 75
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 76
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 29
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 30
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 31
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 77
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 33
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 78
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 34
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 70
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 71
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 89
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 5
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 10
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 13
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 1
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 74
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 25
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 61
+                        },
+                        new
+                        {
+                            RoleId = 4,
+                            PermissionId = 41
                         });
                 });
 

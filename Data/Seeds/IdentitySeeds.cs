@@ -118,10 +118,55 @@ public static class IdentitySeeds
         };
         modelBuilder.Entity<Permission>().HasData(permissions);
 
-        // ExecutiveAdmin gets every permission by default. The other roles have no defaults yet;
-        // their users get permissions individually through the user permission editor.
-        modelBuilder.Entity<RolePermission>().HasData(permissions
+        // Each role's starting permissions, copied to a user when it is created; the owner can still
+        // edit them per user. ExecutiveAdmin gets everything.
+        var idByKey = permissions.ToDictionary(permission => permission.Key, permission => permission.Id);
+        var defaults = permissions
             .Select(permission => new RolePermission { RoleId = ExecutiveAdminRoleId, PermissionId = permission.Id })
-            .ToArray());
+            .Concat(RoleDefaults(2, OrderManagerKeys))
+            .Concat(RoleDefaults(3, StockManagerKeys))
+            .Concat(RoleDefaults(4, PointOfSalesKeys))
+            .ToArray();
+        modelBuilder.Entity<RolePermission>().HasData(defaults);
+
+        IEnumerable<RolePermission> RoleDefaults(int roleId, IEnumerable<string> keys) =>
+            keys.Select(key => new RolePermission { RoleId = roleId, PermissionId = idByKey[key] });
     }
+
+    /// <summary>A cashier: sell, take payments, look up customers and products. No cancel, return, cost or reports.</summary>
+    private static readonly string[] PointOfSalesKeys =
+    {
+        "pos.tab.view", "pos.access", "order.create", "order.view", "orders.tab.view",
+        "invoice.view", "invoices.tab.view", "invoice.payment.add",
+        "customer.view", "customer.create", "customers.tab.view",
+        "product.view", "variant.view", "category.view", "brand.view",
+        "currency.view", "deliveryCharge.view", "employee.view", "stock.view",
+    };
+
+    /// <summary>Runs the sales floor: everything a cashier does plus cancels, returns, promotions, customers and reports.</summary>
+    private static readonly string[] OrderManagerKeys = PointOfSalesKeys.Concat(new[]
+    {
+        "order.cancel", "invoice.return", "invoice.create",
+        "customer.update", "customer.delete",
+        "sale.view", "sale.create", "sale.update", "sale.delete", "sale.assignVariant", "sales.tab.view",
+        "deliveryCharge.create", "deliveryCharge.update", "deliveryCharge.delete", "delivery.tab.view",
+        "products.tab.view", "employees.tab.view", "employee.tab.view",
+        "dashboard.tab.view", "reports.tab.view", "expense.view", "expense.create", "expenses.tab.view",
+    }).ToArray();
+
+    /// <summary>Runs the stock room: catalogue, lots, adjustments, transfers and movements.</summary>
+    private static readonly string[] StockManagerKeys =
+    {
+        "product.view", "product.create", "product.update", "products.tab.view",
+        "variant.view", "variant.create", "variant.update",
+        "brand.view", "brand.create", "brand.update", "brands.tab.view",
+        "category.view", "category.create", "category.update", "categories.tab.view",
+        "attribute.view", "attribute.create", "attribute.update", "attributes.tab.view",
+        "attributeValue.view", "attributeValue.create", "attributeValue.update", "attributeValues.tab.view",
+        "stock.view", "stock.restock", "stock.reduce", "stock.tab.view",
+        "stockMovement.view", "stockMovement.tab.view",
+        "stockTransfer.request", "stockTransfer.send", "stockTransfer.receive", "stockTransfer.cancel",
+        "stockTransfer.view", "stockTransfer.resolve", "stockTransfer.tab.view",
+        "branch.view", "reports.tab.view", "reports.stockInHand.view", "dashboard.tab.view",
+    };
 }

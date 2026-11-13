@@ -59,6 +59,40 @@ public class PermissionTests
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+    /// <summary>Audit L-08: a new non-owner user had every permission off until edited one by one.</summary>
+    [Fact]
+    public async Task New_point_of_sales_user_can_scan_and_sell_without_permission_edits()
+    {
+        var tenant = await _api.NewTenantAsync("Role Default Co");
+        var (variantId, _, barcode) = await tenant.VariantWithStockAsync(price: 10.00m, stock: 5);
+        var roles = await tenant.Owner.GetFromJsonAsync<JsonElement>("/api/users/roles");
+        var roleId = roles.EnumerateArray().First(r => r.GetProperty("name").GetString() == "PointOfSales").GetProperty("id").GetInt32();
+        var email = $"till-{Guid.NewGuid():N}@test.local";
+        (await tenant.Owner.PostAsJsonAsync("/api/users", new { email, username = "Till", password = ApiFixture.Password, roleId, branchId = tenant.BranchId }))
+            .EnsureSuccessStatusCode();
+        using var till = _api.As(await _api.LoginAsync(email));
+
+        var scan = await till.GetAsync($"/api/pos/items?code={barcode}");
+        var checkout = await till.PostAsJsonAsync("/api/pos/checkout", new
+        {
+            idempotencyKey = Guid.NewGuid().ToString(),
+            customerId = await tenant.WalkInCustomerIdAsync(),
+            deliveryLocationId = await tenant.InStoreLocationIdAsync(),
+            createdByEmployeeId = await tenant.SalespersonAsync(),
+            discountTypeId = (int?)null,
+            discountValue = 0,
+            items = new[] { new { productVariantId = variantId, quantity = 1 } },
+            payment = new { paymentMethodId = await tenant.LookupIdAsync("paymentMethods", "CASH"), currencyId = await tenant.BaseCurrencyIdAsync(), tendered = (decimal?)null, reference = "" },
+        });
+        var dashboard = await till.GetAsync("/api/dashboard/total-revenue-summary");
+        var cancel = await till.PostAsJsonAsync("/api/orders/1/cancel", new { reason = "x" });
+
+        Assert.Equal(HttpStatusCode.OK, scan.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, checkout.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, dashboard.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, cancel.StatusCode);
+    }
+
     /// <summary>Audit A-04 / L-01: the cost price was returned to every role.</summary>
     [Fact]
     public async Task Cashier_cannot_see_cost_price()
