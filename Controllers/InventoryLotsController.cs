@@ -35,6 +35,14 @@ public class InventoryLotsController : ControllerBase
             await _service.GetLotByIdAsync(lot.Id));
     }
 
+    /// <summary>Batches with stock that expire within the next <paramref name="days"/> days, soonest first.</summary>
+    [HttpGet("expiring")]
+    [RequirePermission("stock.view")]
+    public async Task<IActionResult> GetExpiring([FromQuery] int days = 7, [FromQuery] int? branchId = null)
+    {
+        return Ok(await _service.GetExpiringAsync(days, User.BranchScope(branchId)));
+    }
+
     [HttpGet]
     [RequirePermission("stock.view")]
     public async Task<IActionResult> GetAll(

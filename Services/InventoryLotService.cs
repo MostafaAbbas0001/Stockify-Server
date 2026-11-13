@@ -390,6 +390,52 @@ public class InventoryLotService
         };
     }
 
+    /// <summary>One row per (branch, lot) with stock whose expiry falls in [today, today + days], soonest first.</summary>
+    public async Task<object> GetExpiringAsync(int days, int? branchId)
+    {
+        if (days < 0 || days > 366)
+            throw new ArgumentException("days must be between 0 and 366.");
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var until = today.AddDays(days);
+        var rows = await _db.BranchLotStocks
+            .AsNoTracking()
+            .Where(stock => stock.Quantity > 0 &&
+                            stock.InventoryLot.ExpiryDate >= today &&
+                            stock.InventoryLot.ExpiryDate <= until &&
+                            (branchId == null || stock.BranchId == branchId))
+            .OrderBy(stock => stock.InventoryLot.ExpiryDate)
+            .ThenBy(stock => stock.InventoryLot.ProductVariant.Product.Name)
+            .Take(200)
+            .Select(stock => new
+            {
+                stock.BranchId,
+                BranchName = stock.Branch.Name,
+                stock.InventoryLotId,
+                stock.InventoryLot.LotNumber,
+                stock.InventoryLot.ProductVariantId,
+                stock.InventoryLot.ProductVariant.SKU,
+                ProductName = stock.InventoryLot.ProductVariant.Product.Name,
+                ExpiryDate = stock.InventoryLot.ExpiryDate!.Value,
+                stock.Quantity
+            })
+            .ToListAsync();
+
+        return rows.Select(row => new
+        {
+            row.BranchId,
+            row.BranchName,
+            row.InventoryLotId,
+            row.LotNumber,
+            row.ProductVariantId,
+            row.SKU,
+            row.ProductName,
+            row.ExpiryDate,
+            DaysLeft = row.ExpiryDate.DayNumber - today.DayNumber,
+            row.Quantity
+        });
+    }
+
     private async Task TouchLocationAsync(int branchId, int variantId)
     {
         var location = await _db.LocationStocks.FirstOrDefaultAsync(stock =>
