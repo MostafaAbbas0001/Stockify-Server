@@ -22,7 +22,7 @@ public class StockMovementsController : ControllerBase
         var result = await _stockMovementService.GetAllAsync(
             search,
             movementTypeId,
-            branchId,
+            User.BranchScope(branchId),
             variantId,
             inventoryLotId,
             startDate,

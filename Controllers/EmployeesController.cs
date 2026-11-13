@@ -36,7 +36,7 @@ public class EmployeesController : ControllerBase
         [FromQuery] int page = 1)
     {
         // Without branch.all.access a user only sees employees of their own branch.
-        var branchScope = User.HasPermission("branch.all.access") ? branchId : User.GetBranchId();
+        var branchScope = User.BranchScope(branchId);
 
         var result = await _employeeService.GetAllAsync(
             search,

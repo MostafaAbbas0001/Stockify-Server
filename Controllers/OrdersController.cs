@@ -68,7 +68,7 @@ public class OrdersController : ControllerBase
             search,
             statusId,
             customerId,
-            branchId,
+            User.BranchScope(branchId),
             deliveryLocationId,
             startDate,
             endDate,
@@ -81,7 +81,7 @@ public class OrdersController : ControllerBase
     [RequirePermission("order.view")]
     public async Task<IActionResult> GetOrderDetails(int orderId)
     {
-        var result = await _orderService.GetOrderDetailsAsync(orderId);
+        var result = await _orderService.GetOrderDetailsAsync(orderId, User.BranchScope(null));
 
         return Ok(result);
     }

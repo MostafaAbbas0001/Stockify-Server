@@ -55,4 +55,13 @@ public static class ClaimsPrincipalExtensions
 
     public static bool HasPermission(this ClaimsPrincipal principal, string permission) =>
         principal.GetPermissions().Contains(permission);
+
+    /// <summary>
+    /// The one branch-scoping rule: users with branch.all.access may filter by any branch of their
+    /// company (null = all branches); everyone else always gets their own branch, whatever they asked for.
+    /// </summary>
+    public static int? BranchScope(this ClaimsPrincipal principal, int? requestedBranchId) =>
+        principal.HasPermission(BranchAllAccess) ? requestedBranchId : principal.GetBranchId();
+
+    public const string BranchAllAccess = "branch.all.access";
 }

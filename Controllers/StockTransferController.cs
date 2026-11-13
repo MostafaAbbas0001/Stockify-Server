@@ -77,7 +77,7 @@ public class StockTransferController : ControllerBase
     {
         var result = await _stockTransferService.GetPagedTransfersAsync(
             search,
-            branchId,
+            User.BranchScope(branchId),
             sourceBranchId,
             destinationBranchId,
             statusId,
@@ -91,7 +91,7 @@ public class StockTransferController : ControllerBase
     [RequirePermission("stockTransfer.view")]
     public async Task<IActionResult> GetTransferStatistics([FromQuery] int? branchId = null)
     {
-        var result = await _stockTransferService.GetTransferStatisticsAsync(branchId);
+        var result = await _stockTransferService.GetTransferStatisticsAsync(User.BranchScope(branchId));
         return Ok(result);
     }
 

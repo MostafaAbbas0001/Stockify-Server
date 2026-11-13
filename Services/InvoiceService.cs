@@ -29,6 +29,7 @@ public class InvoiceService
         int? statusId,
         int? customerId,
         int? orderId,
+        int? branchId,
         DateTime? startDate,
         DateTime? endDate,
         int page)
@@ -57,6 +58,8 @@ public class InvoiceService
             query = query.Where(invoice => invoice.Order.CustomerId == customerId.Value);
         if (orderId.HasValue)
             query = query.Where(invoice => invoice.OrderId == orderId.Value);
+        if (branchId.HasValue)
+            query = query.Where(invoice => invoice.Order.BranchId == branchId.Value);
 
         if (startDate.HasValue)
         {
@@ -103,7 +106,8 @@ public class InvoiceService
         };
     }
 
-    public async Task<object> GetInvoiceByIdAsync(int invoiceId)
+    /// <param name="branchScope">Null for users who may see every branch; otherwise only that branch's invoices are found.</param>
+    public async Task<object> GetInvoiceByIdAsync(int invoiceId, int? branchScope = null)
     {
         var invoice = await _db.Invoices
             .AsNoTracking()
@@ -116,7 +120,7 @@ public class InvoiceService
                 .ThenInclude(o => o.DeliveryLocation)
             .Include(i => i.Order)
                 .ThenInclude(o => o.CreatedByEmployee)
-            .Where(i => i.Id == invoiceId)
+            .Where(i => i.Id == invoiceId && (branchScope == null || i.Order.BranchId == branchScope))
             .Select(i => new
             {
                 i.Id,

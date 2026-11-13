@@ -50,7 +50,7 @@ public class InventoryLotsController : ControllerBase
             search,
             productId,
             variantId,
-            branchId,
+            User.BranchScope(branchId),
             includeEmpty,
             includeExpired,
             page));

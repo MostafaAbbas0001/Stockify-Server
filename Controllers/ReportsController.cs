@@ -32,7 +32,7 @@ public class ReportsController : ControllerBase
     [HttpGet("daily-sales")]
     public async Task<IActionResult> ExportDailySales([FromQuery] DateTime date, [FromQuery] int? branchId, CancellationToken ct = default)
     {
-        var result = await _reportService.ExportDailySalesAsync(date, branchId, ct);
+        var result = await _reportService.ExportDailySalesAsync(date, User.BranchScope(branchId), ct);
 
         return ToFile(result);
     }
@@ -40,7 +40,7 @@ public class ReportsController : ControllerBase
     [HttpGet("monthly-sales")]
     public async Task<IActionResult> ExportMonthlySales([FromQuery] DateTime startDate, [FromQuery] DateTime? endDate, [FromQuery] int? branchId, CancellationToken ct = default)
     {
-        var result = await _reportService.ExportMonthlySalesAsync(startDate, endDate, branchId, ct);
+        var result = await _reportService.ExportMonthlySalesAsync(startDate, endDate, User.BranchScope(branchId), ct);
 
         return ToFile(result);
     }
@@ -48,7 +48,7 @@ public class ReportsController : ControllerBase
     [HttpGet("branch-performance")]
     public async Task<IActionResult> ExportBranchPerformance([FromQuery] DateTime startDate, [FromQuery] DateTime? endDate, [FromQuery] int branchId, CancellationToken ct = default)
     {
-        var result = await _reportService.ExportBranchPerformanceAsync(startDate, endDate, branchId, ct);
+        var result = await _reportService.ExportBranchPerformanceAsync(startDate, endDate, User.BranchScope(branchId) ?? branchId, ct);
 
         return ToFile(result);
     }
@@ -92,7 +92,7 @@ public class ReportsController : ControllerBase
         [FromQuery] int? branchId,
         CancellationToken ct = default)
     {
-        var result = await _reportService.ExportExpensesAsync(from, to, categoryId, branchId, ct);
+        var result = await _reportService.ExportExpensesAsync(from, to, categoryId, User.BranchScope(branchId), ct);
         return ToFile(result);
     }
 }

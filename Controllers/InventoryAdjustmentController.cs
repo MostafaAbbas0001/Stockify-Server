@@ -27,7 +27,7 @@ public class InventoryAdjustmentController : ControllerBase
     {
         var result = await _adjustments.GetPagedAdjustmentsAsync(
             search,
-            branchId,
+            User.BranchScope(branchId),
             variantId,
             inventoryLotId,
             minimumQuantity,

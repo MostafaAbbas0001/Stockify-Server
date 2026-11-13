@@ -46,7 +46,7 @@ public class ExpensesController : ControllerBase
             from,
             to,
             categoryId,
-            branchId,
+            User.BranchScope(branchId),
             statusId,
             page);
         return Ok(result);

@@ -19,6 +19,7 @@ public class InvoicesController : ControllerBase
         [FromQuery] int? statusId = null,
         [FromQuery] int? customerId = null,
         [FromQuery] int? orderId = null,
+        [FromQuery] int? branchId = null,
         [FromQuery] DateTime? startDate = null,
         [FromQuery] DateTime? endDate = null,
         [FromQuery] int page = 1)
@@ -28,6 +29,7 @@ public class InvoicesController : ControllerBase
             statusId,
             customerId,
             orderId,
+            User.BranchScope(branchId),
             startDate,
             endDate,
             page);
@@ -38,7 +40,7 @@ public class InvoicesController : ControllerBase
     [RequirePermission("invoice.view")]
     public async Task<IActionResult> GetInvoiceById(int invoiceId)
     {
-        var result = await _invoiceService.GetInvoiceByIdAsync(invoiceId);
+        var result = await _invoiceService.GetInvoiceByIdAsync(invoiceId, User.BranchScope(null));
 
         return Ok(result);
     }

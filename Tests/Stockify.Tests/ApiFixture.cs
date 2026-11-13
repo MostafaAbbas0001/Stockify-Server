@@ -291,12 +291,15 @@ public sealed class TestTenant
     }
 
     /// <summary>Creates a user with the given role (by name, e.g. "PointOfSales") and permission keys; returns a client signed in as them.</summary>
-    public async Task<HttpClient> UserAsync(string roleName, params string[] permissionKeys)
+    public Task<HttpClient> UserAsync(string roleName, params string[] permissionKeys) =>
+        UserAsync(roleName, permissionKeys, BranchId);
+
+    public async Task<HttpClient> UserAsync(string roleName, string[] permissionKeys, int branchId)
     {
         var roles = await Owner.GetFromJsonAsync<JsonElement>("/api/users/roles");
         var roleId = roles.EnumerateArray().First(r => r.GetProperty("name").GetString() == roleName).GetProperty("id").GetInt32();
         var email = $"user-{Guid.NewGuid():N}@test.local";
-        var userId = await IdOf(await Owner.PostAsJsonAsync("/api/users", new { email, username = "User", password = ApiFixture.Password, roleId, branchId = BranchId }));
+        var userId = await IdOf(await Owner.PostAsJsonAsync("/api/users", new { email, username = "User", password = ApiFixture.Password, roleId, branchId }));
         var permissions = await Owner.GetFromJsonAsync<JsonElement>($"/api/users/{userId}/permissions");
         var items = permissions.GetProperty("permissions").EnumerateArray()
             .Select(p => new { permissionId = p.GetProperty("id").GetInt32(), isActive = permissionKeys.Contains(p.GetProperty("key").GetString()) });

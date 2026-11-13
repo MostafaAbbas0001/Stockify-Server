@@ -457,11 +457,12 @@ public class OrderService
         };
     }
 
-    public async Task<object> GetOrderDetailsAsync(int orderId)
+    /// <param name="branchScope">Null for users who may see every branch; otherwise only that branch's orders are found.</param>
+    public async Task<object> GetOrderDetailsAsync(int orderId, int? branchScope = null)
     {
         var order = await _db.Orders
             .AsNoTracking()
-            .Where(o => o.Id == orderId)
+            .Where(o => o.Id == orderId && (branchScope == null || o.BranchId == branchScope))
             .Select(o => new
             {
                 o.Id,

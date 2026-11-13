@@ -5,7 +5,6 @@ namespace Stockify.Controllers;
 [RequirePermission("dashboard.tab.view")]
 public class DashboardController : ControllerBase
 {
-    private const string BranchAllAccess = "branch.all.access";
     private readonly DashboardService _dashboardService;
 
     public DashboardController(DashboardService dashboardService)
@@ -17,8 +16,7 @@ public class DashboardController : ControllerBase
     /// Users with branch.all.access may pick any branch (or all with null);
     /// everyone else is always limited to the branch in their token.
     /// </summary>
-    private int? ResolveBranchScope(int? requestedBranchId) =>
-        User.HasPermission(BranchAllAccess) ? requestedBranchId : User.GetBranchId();
+    private int? ResolveBranchScope(int? requestedBranchId) => User.BranchScope(requestedBranchId);
 
     [HttpGet("stock-summary")]
     public async Task<ActionResult> GetDashboard
@@ -54,7 +52,7 @@ public class DashboardController : ControllerBase
     {
         var (startUtc, endUtcExclusive) = DateRangeHelper.NormalizeToUtcRange(startDate, endDate);
         var result = await _dashboardService.GetDailySalesSummaryAsync(
-            startUtc, endUtcExclusive, ResolveBranchScope(branchId), User.HasPermission(BranchAllAccess));
+            startUtc, endUtcExclusive, ResolveBranchScope(branchId), User.HasPermission(ClaimsPrincipalExtensions.BranchAllAccess));
         return Ok(result);
     }
 
@@ -66,7 +64,7 @@ public class DashboardController : ControllerBase
     {
         var (startUtc, endUtcExclusive) = DateRangeHelper.NormalizeToUtcRange(startDate, endDate);
         var result = await _dashboardService.GetTopProductsAsync(
-            startUtc, endUtcExclusive, ResolveBranchScope(branchId), User.HasPermission(BranchAllAccess));
+            startUtc, endUtcExclusive, ResolveBranchScope(branchId), User.HasPermission(ClaimsPrincipalExtensions.BranchAllAccess));
         return Ok(result);
     }
 
