@@ -37,6 +37,19 @@ public static class Pricing
         public decimal LineNet => Round2(FinalUnitPrice * Quantity);
     }
 
+    /// <summary>
+    /// What a returned line gives back: its net amount, minus its share of the order discount, plus its
+    /// share of the tax. Shares follow the line's part of the invoice's net subtotal, because that is the
+    /// base the discount and the tax were computed on (D7, D17).
+    /// </summary>
+    public static decimal RefundFor(decimal returnedNet, decimal invoiceNetSubtotal, decimal invoiceDiscount, decimal invoiceTax)
+    {
+        if (invoiceNetSubtotal <= 0m)
+            return 0m;
+        var share = returnedNet / invoiceNetSubtotal;
+        return Round2(returnedNet - Round2(invoiceDiscount * share) + Round2(invoiceTax * share));
+    }
+
     public sealed record Totals(
         decimal GrossSubtotal,
         decimal SaleAmount,

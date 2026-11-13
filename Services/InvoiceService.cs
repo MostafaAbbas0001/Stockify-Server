@@ -317,7 +317,7 @@ public class InvoiceService
             var incomingAmountBase = ConvertToBase(recordPaymentDto.Amount, paymentCurrency.ExchangeRate);
             var remainingBase = invoice.TotalAmount - paidAmountBase;
 
-            if (remainingBase <= SettlementTolerance)
+            if (remainingBase <= 0m)
                 throw new ArgumentException($"Invoice {invoice.InvoiceNumber} is already paid.");
             if (incomingAmountBase > remainingBase + SettlementTolerance)
                 throw new ArgumentException($"Payment amount is greater than the remaining amount ({remainingBase:0.00}).");
@@ -363,155 +363,148 @@ public class InvoiceService
         }
     }
 
+    /// <summary>
+    /// Records a return (credit memo) on a paid invoice and puts the units back into the lots they came
+    /// from. Each line refunds its net minus its share of the order discount plus its share of the tax;
+    /// the delivery fee is not refunded; total refunds never exceed what was paid. All checks and writes
+    /// run in one serializable transaction, so a double submission cannot refund or restock twice.
+    /// </summary>
     public async Task<object> ReturnInvoiceAsync(
         int invoiceId,
         CreateInvoiceReturnRequest req)
     {
         if (req == null || req.Items == null || req.Items.Count == 0)
             throw new ArgumentException("No items to return.");
+        if (req.Items.Any(item => item.Quantity <= 0))
+            throw new ArgumentException("Return quantity must be > 0.");
 
-        var invoice = await _db.Invoices
-            .Include(i => i.Order)
-            .SingleOrDefaultAsync(i => i.Id == invoiceId);
-        if (invoice == null)
-            throw new KeyNotFoundException($"Invoice {invoiceId} not found.");
-        if (invoice.InvoiceStatusId == await _lookups.IdAsync<InvoiceStatus>(InvoiceStatusCodes.Void))
-            throw new ArgumentException("Invoice is void and cannot be returned.");
-        // D18: a return refunds money, so there must be money to refund; an unpaid order is cancelled instead.
-        if (!await _db.Payments.AnyAsync(p => p.InvoiceId == invoiceId))
-            throw new ArgumentException("Nothing has been paid on this invoice; cancel the order instead of returning it.");
-
-        var lineIds = req.Items.Select(x => x.InvoiceItemId).Distinct().ToList();
-        var lines = await _db.InvoiceItems
-            .Include(l => l.CreditMemoItems)
-            .Where(l => l.InvoiceId == invoiceId && lineIds.Contains(l.Id))
-            .ToListAsync();
-        if (lines.Count != lineIds.Count)
-            throw new ArgumentException("One or more invoice lines not found for this invoice.");
-
-        using var tx = await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
-
-        var computed = new List<(InvoiceItem line, int qty, decimal retGross, decimal retSale, decimal retNet, string reason)>();
-
-        foreach (var item in req.Items)
+        return await SerializableTransactions.RunAsync(_db, async () =>
         {
-            if (item.Quantity <= 0)
-                throw new ArgumentException("Return quantity must be > 0.");
+            var invoice = await _db.Invoices
+                .Include(i => i.Order)
+                .Include(i => i.InvoiceStatus)
+                .SingleOrDefaultAsync(i => i.Id == invoiceId)
+                ?? throw new KeyNotFoundException($"Invoice {invoiceId} not found.");
+            if (invoice.InvoiceStatus.Code == InvoiceStatusCodes.Void)
+                throw new ArgumentException("Invoice is void and cannot be returned.");
 
-            var line = lines.First(l => l.Id == item.InvoiceItemId);
-            var alreadyReturned = line.CreditMemoItems.Sum(c => c.Quantity);
-            var allowed = line.Quantity - alreadyReturned;
-            if (allowed <= 0)
-                throw new ArgumentException($"Invoice item {line.Id} has no remaining returnable quantity.");
-            if (item.Quantity > allowed)
-                throw new ArgumentException($"Invoice item {line.Id} can return at most {allowed}.");
+            // D18: a return refunds money, so there must be money to refund; an unpaid order is cancelled instead.
+            var paidBase = await _db.Payments
+                .Where(p => p.InvoiceId == invoiceId)
+                .SumAsync(p => (decimal?)(p.Amount / p.Currency.ExchangeRate)) ?? 0m;
+            if (paidBase <= 0m)
+                throw new ArgumentException("Nothing has been paid on this invoice; cancel the order instead of returning it.");
 
-            var ratio = (decimal)item.Quantity / (decimal)line.Quantity;
-            var retGross = R2(line.LineGross * ratio);
-            var retSale = R2(line.LineSale * ratio);
-            var retNet = R2(line.LineNet * ratio);
-            computed.Add((line, item.Quantity, retGross, retSale, retNet, item.Reason ?? string.Empty));
-        }
+            var allLines = await _db.InvoiceItems
+                .Include(l => l.CreditMemoItems)
+                .Where(l => l.InvoiceId == invoiceId)
+                .ToListAsync();
+            var requested = req.Items
+                .GroupBy(item => item.InvoiceItemId)
+                .Select(group => new { LineId = group.Key, Quantity = group.Sum(item => item.Quantity), Reason = group.First().Reason })
+                .ToList();
+            if (requested.Any(item => allLines.All(line => line.Id != item.LineId)))
+                throw new ArgumentException("One or more invoice lines not found for this invoice.");
 
-        var creditSubtotal = R2(computed.Sum(x => x.retGross));
-        var creditSale = R2(computed.Sum(x => x.retSale));
-        var discShare = invoice.Subtotal > 0m ? (creditSubtotal / invoice.Subtotal) : 0m;
-        var creditExtraDiscount = R2(invoice.DiscountAmount * discShare);
-        var creditTax = R2(invoice.TaxAmount * discShare);
-        var deliveryRefund = 0m;
-        var creditTotal = R2(creditSubtotal + creditTax + deliveryRefund - creditSale - creditExtraDiscount);
-
-        var cm = new CreditMemo
-        {
-            CreditMemoNumber = await _documentNumbers.NextAsync(DocumentPrefixes.CreditMemo),
-            InvoiceId = invoice.Id,
-            CustomerId = null,
-            Reason = req.Reason ?? string.Empty,
-            CreatedAt = DateTime.UtcNow,
-            IssuedAt = DateTime.UtcNow,
-            TotalAmount = creditTotal
-        };
-        _db.CreditMemos.Add(cm);
-        await _db.SaveChangesAsync();
-
-        decimal runningSum = 0m;
-        for (int i = 0; i < computed.Count; i++)
-        {
-            var c = computed[i];
-            var lineDiscShare = invoice.Subtotal > 0m ? (c.retGross / invoice.Subtotal) : 0m;
-            var lineExtra = R2(invoice.DiscountAmount * lineDiscShare);
-            var lineTax = R2(invoice.TaxAmount * lineDiscShare);
-            var refund = R2(c.retGross + lineTax - c.retSale - lineExtra);
-
-            if (i == computed.Count - 1)
+            var invoiceNet = invoice.Subtotal - invoice.SaleAmount;
+            var returns = new List<(InvoiceItem line, int qty, decimal retGross, decimal retSale, decimal retNet, decimal refund, string reason)>();
+            foreach (var item in requested)
             {
-                var remaining = creditTotal - runningSum;
-                refund = remaining;
+                var line = allLines.Single(l => l.Id == item.LineId);
+                var allowed = line.Quantity - line.CreditMemoItems.Sum(c => c.Quantity);
+                if (allowed <= 0)
+                    throw new ArgumentException($"Invoice item {line.Id} has no remaining returnable quantity.");
+                if (item.Quantity > allowed)
+                    throw new ArgumentException($"Invoice item {line.Id} can return at most {allowed}.");
+
+                var ratio = (decimal)item.Quantity / line.Quantity;
+                var retNet = R2(line.LineNet * ratio);
+                var refund = Pricing.RefundFor(retNet, invoiceNet, invoice.DiscountAmount, invoice.TaxAmount);
+                returns.Add((line, item.Quantity, R2(line.LineGross * ratio), R2(line.LineSale * ratio), retNet, refund, item.Reason ?? string.Empty));
             }
-            runningSum += refund;
 
-            _db.CreditMemoItems.Add(new CreditMemoItem
+            var refundable = invoice.TotalAmount - invoice.DeliveryChargeAmount;
+            var refundedBefore = await _db.CreditMemos
+                .Where(c => c.InvoiceId == invoiceId)
+                .SumAsync(c => (decimal?)c.TotalAmount) ?? 0m;
+
+            // The return that brings every unit back settles to the exact cent of what was charged.
+            var returnsEverything = allLines.All(line =>
+                line.Quantity - line.CreditMemoItems.Sum(c => c.Quantity) ==
+                returns.Where(r => r.line.Id == line.Id).Sum(r => r.qty));
+            if (returnsEverything)
             {
-                CreditMemoId = cm.Id,
-                InvoiceItemId = c.line.Id,
-                ProductVariantId = c.line.ProductVariantId,
-                Quantity = c.qty,
-                LineGross = c.retGross,
-                LineSale = c.retSale,
-                LineNet = c.retNet,
-                RefundAmount = refund,
-                Reason = c.reason
-            });
+                var last = returns[^1];
+                var others = returns.Take(returns.Count - 1).Sum(r => r.refund);
+                returns[^1] = last with { refund = R2(refundable - refundedBefore - others) };
+            }
 
-            var returnedLots = await _inventory.ReturnSoldQuantityAsync(
-                invoice.OrderId,
-                c.line.ProductVariantId,
-                invoice.Order.BranchId,
-                c.qty);
+            var creditTotal = R2(returns.Sum(r => r.refund));
+            if (refundedBefore + creditTotal > R2(paidBase) + 0.01m)
+                throw new ArgumentException(
+                    $"Refund {creditTotal:0.00} would exceed what was paid ({R2(paidBase):0.00}, already refunded {refundedBefore:0.00}).");
 
-            foreach (var returnedLot in returnedLots)
+            var creditMemo = new CreditMemo
             {
-                _db.StockMovements.Add(new StockMovement
+                CreditMemoNumber = await _documentNumbers.NextAsync(DocumentPrefixes.CreditMemo),
+                InvoiceId = invoice.Id,
+                Reason = req.Reason ?? string.Empty,
+                CreatedAt = DateTime.UtcNow,
+                IssuedAt = DateTime.UtcNow,
+                TotalAmount = creditTotal
+            };
+            _db.CreditMemos.Add(creditMemo);
+            await _db.SaveChangesAsync();
+
+            var returnMovementTypeId = await _lookups.IdAsync<MovementType>(MovementTypeCodes.ReturnFromClient);
+            foreach (var r in returns)
+            {
+                _db.CreditMemoItems.Add(new CreditMemoItem
                 {
-                    ProductVariantId = c.line.ProductVariantId,
-                    InventoryLotId = returnedLot.Key,
-                    BranchId = invoice.Order.BranchId,
-                    MovementTypeId = await _lookups.IdAsync<MovementType>(MovementTypeCodes.ReturnFromClient),
-                    Quantity = returnedLot.Value,
-                    CreatedAt = DateTime.UtcNow,
-                    Reason = "Credit Memo Return"
+                    CreditMemoId = creditMemo.Id,
+                    InvoiceItemId = r.line.Id,
+                    ProductVariantId = r.line.ProductVariantId,
+                    Quantity = r.qty,
+                    LineGross = r.retGross,
+                    LineSale = r.retSale,
+                    LineNet = r.retNet,
+                    RefundAmount = r.refund,
+                    Reason = r.reason
                 });
+
+                var returnedLots = await _inventory.ReturnSoldQuantityAsync(
+                    invoice.OrderId, r.line.ProductVariantId, invoice.Order.BranchId, r.qty);
+                foreach (var returnedLot in returnedLots)
+                {
+                    _db.StockMovements.Add(new StockMovement
+                    {
+                        ProductVariantId = r.line.ProductVariantId,
+                        InventoryLotId = returnedLot.Key,
+                        BranchId = invoice.Order.BranchId,
+                        MovementTypeId = returnMovementTypeId,
+                        Quantity = returnedLot.Value,
+                        CreatedAt = DateTime.UtcNow,
+                        Reason = $"Credit memo {creditMemo.CreditMemoNumber}"
+                    });
+                }
             }
-        }
 
-        await _db.SaveChangesAsync();
+            var isFullRefund = returnsEverything || refundedBefore + creditTotal >= refundable - 0.01m;
+            invoice.InvoiceStatusId = await _lookups.IdAsync<InvoiceStatus>(
+                isFullRefund ? InvoiceStatusCodes.Refunded : InvoiceStatusCodes.PartiallyRefunded);
+            invoice.Order.OrderStatusId = await _lookups.IdAsync<OrderStatus>(
+                isFullRefund ? OrderStatusCodes.Returned : OrderStatusCodes.PartiallyReturned);
 
-        var totalRefunded = await _db.CreditMemos
-            .Where(x => x.InvoiceId == invoice.Id)
-            .Select(x => (decimal?)x.TotalAmount)
-            .SumAsync() ?? 0m;
+            await _db.SaveChangesAsync();
 
-        const decimal EPS = 0.01m;
-        var refundableAmount = invoice.TotalAmount - invoice.DeliveryChargeAmount;
-        var isFullRefund = Math.Abs(totalRefunded - refundableAmount) <= EPS || totalRefunded >= (refundableAmount - EPS);
-
-        invoice.InvoiceStatusId = await _lookups.IdAsync<InvoiceStatus>(
-            isFullRefund ? InvoiceStatusCodes.Refunded : InvoiceStatusCodes.PartiallyRefunded);
-
-        var order = await _db.Orders.SingleAsync(o => o.Id == invoice.OrderId);
-        order.OrderStatusId = await _lookups.IdAsync<OrderStatus>(
-            isFullRefund ? OrderStatusCodes.Returned : OrderStatusCodes.PartiallyReturned);
-
-        await _db.SaveChangesAsync();
-        await tx.CommitAsync();
-
-        return new
-        {
-            creditMemoId = cm.Id,
-            totalRefund = cm.TotalAmount,
-            invoiceStatusId = invoice.InvoiceStatusId,
-            orderStatusId = order.OrderStatusId,
-            items = computed.Select(x => new { invoiceItemId = x.line.Id, qty = x.qty })
-        };
+            return (object)new
+            {
+                creditMemoId = creditMemo.Id,
+                totalRefund = creditMemo.TotalAmount,
+                invoiceStatusId = invoice.InvoiceStatusId,
+                orderStatusId = invoice.Order.OrderStatusId,
+                items = returns.Select(r => new { invoiceItemId = r.line.Id, qty = r.qty })
+            };
+        });
     }
 }

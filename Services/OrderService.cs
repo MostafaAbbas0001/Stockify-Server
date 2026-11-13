@@ -203,7 +203,9 @@ public class OrderService
             DiscountAmount = sale.Totals.DiscountAmount,
             TaxAmount = sale.Totals.TaxAmount,
             TotalAmount = sale.Totals.Total,
-            InvoiceStatusId = await _lookups.IdAsync<InvoiceStatus>(InvoiceStatusCodes.Issued),
+            // A sale that costs nothing (free items, 100 % discount) is settled the moment it is made.
+            InvoiceStatusId = await _lookups.IdAsync<InvoiceStatus>(
+                sale.Totals.Total == 0m ? InvoiceStatusCodes.FullyPaid : InvoiceStatusCodes.Issued),
             InvoiceItems = sale.Lines.Select(line => new InvoiceItem
             {
                 ProductVariantId = line.VariantId,
@@ -218,6 +220,8 @@ public class OrderService
         };
 
         _db.Invoices.Add(invoice);
+        if (sale.Totals.Total == 0m)
+            order.OrderStatusId = await _lookups.IdAsync<OrderStatus>(OrderStatusCodes.FullyPaid);
         await _db.SaveChangesAsync();
         return invoice;
     }
@@ -293,7 +297,10 @@ public class OrderService
     /// Cancels an order nobody has paid for or returned against (D18): puts the units still out back
     /// into their lots and voids the invoice. Money already taken is reversed through a return instead.
     /// </summary>
-    public async Task<object> CancelOrderAsync(int orderId, string? reason)
+    public Task<object> CancelOrderAsync(int orderId, string? reason) =>
+        SerializableTransactions.RunAsync(_db, () => CancelInTransactionAsync(orderId, reason));
+
+    private async Task<object> CancelInTransactionAsync(int orderId, string? reason)
     {
         var order = await _db.Orders
             .Include(o => o.OrderStatus)

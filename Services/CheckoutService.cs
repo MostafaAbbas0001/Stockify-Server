@@ -38,7 +38,8 @@ public class CheckoutService
 
                 var placed = await _orders.PlaceOrderAsync(dto, branchId);
                 PaymentResult? paid = null;
-                if (dto.Payment is { } payment)
+                // Nothing is due on a free sale: it is already settled, so no payment is recorded.
+                if (dto.Payment is { } payment && placed.Total > 0m)
                     paid = await _invoices.AddPaymentAsync(placed.InvoiceId, await PaymentFor(placed, payment));
 
                 _db.CheckoutKeys.Add(new CheckoutKey
