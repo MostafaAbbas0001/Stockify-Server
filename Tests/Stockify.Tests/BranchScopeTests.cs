@@ -63,6 +63,26 @@ public class BranchScopeTests
         Assert.Equal(2, owner.GetProperty(listKey).GetArrayLength()); // branch.all.access sees both
     }
 
+    /// <summary>Found in Phase 6: the POS tiles showed company-wide stock while the till sells only its own branch's.</summary>
+    [Fact]
+    public async Task Variant_list_counts_stock_of_the_users_branch()
+    {
+        var (tenant, mainCashier, otherBranchId) = await TwoBranchesWithASaleEachAsync();
+
+        static int Stock(JsonElement list) =>
+            list.GetProperty("variants").EnumerateArray().Single().GetProperty("stockQuantity").GetInt32();
+
+        var cashier = await mainCashier.GetFromJsonAsync<JsonElement>("/api/product-variants?page=1");
+        var cashierAsksMall = await mainCashier.GetFromJsonAsync<JsonElement>($"/api/product-variants?page=1&branchId={otherBranchId}");
+        var ownerAll = await tenant.Owner.GetFromJsonAsync<JsonElement>("/api/product-variants?page=1");
+        var ownerMall = await tenant.Owner.GetFromJsonAsync<JsonElement>($"/api/product-variants?page=1&branchId={otherBranchId}");
+
+        Assert.Equal(4, Stock(cashier));         // 5 received − 1 sold at the main branch
+        Assert.Equal(4, Stock(cashierAsksMall)); // still the main branch: the mall is out of reach
+        Assert.Equal(8, Stock(ownerAll));        // branch.all.access without a branch: the whole company
+        Assert.Equal(4, Stock(ownerMall));
+    }
+
     [Fact]
     public async Task Staff_cannot_read_another_branchs_order_by_id()
     {

@@ -104,7 +104,8 @@ public class ProductVariantService
         int? categoryId,
         bool? isSellable,
         int page,
-        bool includeCost = true)
+        bool includeCost = true,
+        int? branchId = null)
     {
         page = Math.Max(page, 1);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
@@ -171,6 +172,7 @@ public class ProductVariantService
             .AsNoTracking()
             .Where(stock =>
                 variantIds.Contains(stock.InventoryLot.ProductVariantId) &&
+                (branchId == null || stock.BranchId == branchId) &&
                 (!stock.InventoryLot.ExpiryDate.HasValue || stock.InventoryLot.ExpiryDate >= today))
             .GroupBy(stock => new
             {

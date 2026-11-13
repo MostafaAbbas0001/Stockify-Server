@@ -27,6 +27,7 @@ public class ProductVariantController : ControllerBase
         [FromQuery] int? brandId,
         [FromQuery] int? categoryId,
         [FromQuery] bool? isSellable,
+        [FromQuery] int? branchId,
         [FromQuery] int page = 1)
     {
         var rows = await _service.GetAllAsync(
@@ -36,7 +37,9 @@ public class ProductVariantController : ControllerBase
             categoryId,
             isSellable,
             page,
-            includeCost: User.HasPermission("product.update"));
+            includeCost: User.HasPermission("product.update"),
+            // Stock is counted where the user may sell: their branch, or any branch with branch.all.access.
+            branchId: User.BranchScope(branchId));
         return Ok(rows);
     }
 
