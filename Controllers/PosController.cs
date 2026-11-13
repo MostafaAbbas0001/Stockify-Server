@@ -6,10 +6,12 @@ namespace Stockify.Controllers;
 public class PosController : ControllerBase
 {
     private readonly PosService _posService;
+    private readonly CheckoutService _checkout;
 
-    public PosController(PosService posService)
+    public PosController(PosService posService, CheckoutService checkout)
     {
         _posService = posService;
+        _checkout = checkout;
     }
 
     [HttpGet("items")]
@@ -23,6 +25,18 @@ public class PosController : ControllerBase
         var result = await _posService.ScanAsync(code, branchId);
 
         return Ok(result);
+    }
+
+    /// <summary>Sells a cart: order + payment in one transaction, safe to retry with the same key.</summary>
+    [HttpPost("checkout")]
+    [RequirePermission("order.create")]
+    public async Task<IActionResult> Checkout([FromBody] CheckoutRequest dto)
+    {
+        if (dto.Payment != null && !User.HasPermission("invoice.payment.add"))
+            return Forbid();
+
+        var result = await _checkout.CheckoutAsync(dto, User.GetBranchId());
+        return StatusCode(StatusCodes.Status201Created, result);
     }
 
     /// <summary>Prices a cart the way the order will be priced, so the till never shows a different total.</summary>

@@ -32,7 +32,7 @@ public class OrderService
         _ => Array.Empty<string>()
     };
 
-    public async Task<object> PlaceOrderAsync(CreateOrderRequest dto, int branchId)
+    public async Task<PlacedOrder> PlaceOrderAsync(CreateOrderRequest dto, int branchId)
     {
         if (dto.Items == null || dto.Items.Count == 0)
             throw new ArgumentException("Order must have at least one item.");
@@ -108,8 +108,10 @@ public class OrderService
         }).ToList();
         var totals = Pricing.OrderTotals(lineCalcs, discountType.Code, dto.DiscountValue, taxRate, deliveryCharge.Fee);
 
-        using var tx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
-
+        // Serializable + retry: two tills selling the last unit cannot both succeed, and the loser gets a
+        // clean "Insufficient stock" on the retry. Joins the caller's transaction when there is one (checkout).
+        return await SerializableTransactions.RunAsync(_db, async () =>
+        {
         // Recheck stock inside the transaction
         var currentStock = await _inventory.GetAvailableQuantitiesAsync(branchId, variantIds);
         if (itemGroups.Any(item =>
@@ -218,13 +220,9 @@ public class OrderService
         }
 
         await _db.SaveChangesAsync();
-        await tx.CommitAsync();
 
-        return new
-        {
-            orderId = order.Id,
-            invoiceId = invoice.Id
-        };
+        return new PlacedOrder(order.Id, invoice.Id, invoice.InvoiceNumber, invoice.TotalAmount);
+        });
     }
 
     public async Task<object> UpdateOrderStatusAsync(

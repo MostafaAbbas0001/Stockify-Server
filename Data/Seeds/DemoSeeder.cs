@@ -823,8 +823,8 @@ public static class DemoSeeder
             var available = await AvailableAsync(branchId);
             foreach (var (variant, quantity) in items)
                 available[variant.Id] -= quantity;
-            var orderId = Prop<int>(result, "orderId");
-            var invoiceId = Prop<int>(result, "invoiceId");
+            var orderId = result.OrderId;
+            var invoiceId = result.InvoiceId;
             var when = DaysAgo(daysAgo);
 
             var invoice = await Db.Invoices.SingleAsync(i => i.Id == invoiceId);

@@ -49,6 +49,7 @@ builder.Services.AddScoped<OrderService>();
 builder.Services.AddScoped<InvoiceService>();
 builder.Services.AddScoped<PosService>();
 builder.Services.AddScoped<SaleService>();
+builder.Services.AddScoped<CheckoutService>();
 
 // Inventory
 builder.Services.AddScoped<InventoryLotService>();

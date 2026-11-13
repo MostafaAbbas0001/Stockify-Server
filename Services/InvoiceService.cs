@@ -282,7 +282,7 @@ public class InvoiceService
     /// second-currency cash note cannot match a base-currency total to the cent.</summary>
     private const decimal SettlementTolerance = 0.01m;
 
-    public async Task<object> AddPaymentAsync(
+    public async Task<PaymentResult> AddPaymentAsync(
         int invoiceId,
         RecordPaymentRequest recordPaymentDto)
     {
@@ -348,16 +348,14 @@ public class InvoiceService
 
             await _db.SaveChangesAsync();
 
-            return new
-            {
+            return new PaymentResult(
                 invoiceId,
                 invoice.InvoiceNumber,
-                paidAmountBase = newPaidTotalBase,
-                remainingBase = Math.Max(0m, Pricing.Round2(invoice.TotalAmount - newPaidTotalBase)),
+                newPaidTotalBase,
+                Math.Max(0m, Pricing.Round2(invoice.TotalAmount - newPaidTotalBase)),
                 fullyPaid,
                 // Change is in the payment's own currency (cash handed back at the till).
-                change = Pricing.Round2((recordPaymentDto.Tendered ?? recordPaymentDto.Amount) - recordPaymentDto.Amount)
-            };
+                Pricing.Round2((recordPaymentDto.Tendered ?? recordPaymentDto.Amount) - recordPaymentDto.Amount));
         });
 
         static decimal ConvertToBase(decimal amount, decimal rate)

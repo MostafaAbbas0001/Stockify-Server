@@ -56,6 +56,84 @@ public class CheckoutTests
         Assert.Equal(invoice.GetProperty("discountAmount").GetDecimal(), preview.GetProperty("discountAmount").GetDecimal());
     }
 
+    private static async Task<object> CheckoutBodyAsync(TestTenant tenant, string key, int variantId, int quantity, decimal? tendered, int? currencyId = null) => new
+    {
+        idempotencyKey = key,
+        customerId = await tenant.WalkInCustomerIdAsync(),
+        deliveryLocationId = await tenant.InStoreLocationIdAsync(),
+        createdByEmployeeId = await tenant.SalespersonAsync(),
+        discountTypeId = (int?)null,
+        discountValue = 0,
+        items = new[] { new { productVariantId = variantId, quantity } },
+        payment = new
+        {
+            paymentMethodId = await tenant.LookupIdAsync("paymentMethods", "CASH"),
+            currencyId = currencyId ?? await tenant.BaseCurrencyIdAsync(),
+            tendered,
+            reference = "",
+        },
+    };
+
+    private static async Task<int> StockAsync(TestTenant tenant, string barcode) =>
+        (await tenant.Owner.GetFromJsonAsync<JsonElement>($"/api/pos/items?code={barcode}")).GetProperty("stockQuantity").GetInt32();
+
+    private static async Task<int> OrderCountAsync(TestTenant tenant) =>
+        (await tenant.Owner.GetFromJsonAsync<JsonElement>("/api/orders?page=1")).GetProperty("totalCount").GetInt32();
+
+    /// <summary>Audit L-05 / I-02: the POS created the order and the payment in two calls.</summary>
+    [Fact]
+    public async Task Checkout_creates_order_and_payment_atomically()
+    {
+        var tenant = await _api.NewTenantAsync("Checkout Co");
+        var (variantId, _, barcode) = await tenant.VariantWithStockAsync(price: 40.00m, stock: 5);
+
+        var response = await tenant.Owner.PostAsJsonAsync("/api/pos/checkout", await CheckoutBodyAsync(tenant, Guid.NewGuid().ToString(), variantId, 1, tendered: 50.00m));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(44.40m, result.GetProperty("total").GetDecimal());
+        Assert.Equal(5.60m, result.GetProperty("change").GetDecimal());
+        Assert.True(result.GetProperty("fullyPaid").GetBoolean());
+        var order = await tenant.Owner.GetFromJsonAsync<JsonElement>($"/api/orders/{result.GetProperty("orderId").GetInt32()}");
+        Assert.Equal("FULLY_PAID", order.GetProperty("statusCode").GetString());
+        Assert.Equal(4, await StockAsync(tenant, barcode));
+    }
+
+    /// <summary>Audit L-05: a retry or double-click created a second order and deducted stock twice.</summary>
+    [Fact]
+    public async Task Checkout_with_same_idempotency_key_returns_same_order()
+    {
+        var tenant = await _api.NewTenantAsync("Retry Co");
+        var (variantId, _, barcode) = await tenant.VariantWithStockAsync(price: 40.00m, stock: 5);
+        var body = await CheckoutBodyAsync(tenant, Guid.NewGuid().ToString(), variantId, 1, tendered: 44.40m);
+
+        var first = await (await tenant.Owner.PostAsJsonAsync("/api/pos/checkout", body)).Content.ReadFromJsonAsync<JsonElement>();
+        var responses = await Task.WhenAll(Enumerable.Range(0, 3).Select(_ => tenant.Owner.PostAsJsonAsync("/api/pos/checkout", body)));
+
+        Assert.All(responses, r => Assert.True(r.IsSuccessStatusCode, $"retry returned {(int)r.StatusCode}"));
+        foreach (var response in responses)
+        {
+            var again = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(first.GetProperty("orderId").GetInt32(), again.GetProperty("orderId").GetInt32());
+        }
+        Assert.Equal(1, await OrderCountAsync(tenant));
+        Assert.Equal(4, await StockAsync(tenant, barcode));
+    }
+
+    /// <summary>Audit L-05: a failed payment left an unpaid order behind.</summary>
+    [Fact]
+    public async Task Checkout_with_failing_payment_creates_no_order()
+    {
+        var tenant = await _api.NewTenantAsync("Fail Co");
+        var (variantId, _, barcode) = await tenant.VariantWithStockAsync(price: 40.00m, stock: 5);
+
+        var response = await tenant.Owner.PostAsJsonAsync("/api/pos/checkout", await CheckoutBodyAsync(tenant, Guid.NewGuid().ToString(), variantId, 1, tendered: 50m, currencyId: 999999));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(0, await OrderCountAsync(tenant));
+        Assert.Equal(5, await StockAsync(tenant, barcode));
+    }
+
     /// <summary>Audit B-09 / L-03: a free item was taxed and the scan preview went negative.</summary>
     [Fact]
     public async Task Free_item_costs_nothing_in_preview_and_invoice()

@@ -73,6 +73,7 @@ public class AppDbContext : DbContext
     public DbSet<Payment> Payments => Set<Payment>();
     public DbSet<CreditMemo> CreditMemos => Set<CreditMemo>();
     public DbSet<CreditMemoItem> CreditMemoItems => Set<CreditMemoItem>();
+    public DbSet<CheckoutKey> CheckoutKeys => Set<CheckoutKey>();
 
     // Expenses
     public DbSet<Expense> Expenses => Set<Expense>();

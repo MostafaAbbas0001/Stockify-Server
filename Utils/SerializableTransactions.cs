@@ -14,6 +14,10 @@ public static class SerializableTransactions
 
     public static async Task<T> RunAsync<T>(AppDbContext db, Func<Task<T>> body)
     {
+        // Already inside a unit of work (e.g. checkout = order + payment): join it; the outer call retries.
+        if (db.Database.CurrentTransaction != null)
+            return await body();
+
         for (var attempt = 1; ; attempt++)
         {
             await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
