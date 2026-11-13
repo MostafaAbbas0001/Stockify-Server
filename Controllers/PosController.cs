@@ -33,7 +33,8 @@ public class PosController : ControllerBase
     public async Task<IActionResult> Checkout([FromBody] CheckoutRequest dto)
     {
         if (dto.Payment != null && !User.HasPermission("invoice.payment.add"))
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { code = "FORBIDDEN", message = "Recording a payment needs the invoice.payment.add permission." });
 
         var result = await _checkout.CheckoutAsync(dto, User.GetBranchId());
         return StatusCode(StatusCodes.Status201Created, result);
