@@ -14,6 +14,7 @@ public class CheckoutKey : ITenantOwned
     public Order Order { get; set; } = null!;
 
     public int InvoiceId { get; set; }
+    public Invoice Invoice { get; set; } = null!;
 
     /// <summary>Change given at the original checkout, in the payment currency.</summary>
     public decimal Change { get; set; }

@@ -9,5 +9,6 @@ public class CheckoutKeyConfiguration : IEntityTypeConfiguration<CheckoutKey>
         // One sale per key per company: the database is the last line against duplicate sales.
         builder.HasIndex(k => new { k.TenantId, k.Key }).IsUnique();
         builder.HasOne(k => k.Order).WithMany().HasForeignKey(k => k.OrderId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(k => k.Invoice).WithMany().HasForeignKey(k => k.InvoiceId).OnDelete(DeleteBehavior.Restrict);
     }
 }

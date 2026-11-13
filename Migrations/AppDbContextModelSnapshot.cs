@@ -273,6 +273,8 @@ namespace Stockify.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("InvoiceId");
+
                     b.HasIndex("OrderId");
 
                     b.HasIndex("TenantId", "Key")
@@ -4341,6 +4343,12 @@ namespace Stockify.Migrations
 
             modelBuilder.Entity("Stockify.Models.Entities.CheckoutKey", b =>
                 {
+                    b.HasOne("Stockify.Models.Entities.Invoice", "Invoice")
+                        .WithMany()
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("Stockify.Models.Entities.Order", "Order")
                         .WithMany()
                         .HasForeignKey("OrderId")
@@ -4352,6 +4360,8 @@ namespace Stockify.Migrations
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Invoice");
 
                     b.Navigation("Order");
                 });

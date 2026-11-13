@@ -21,6 +21,7 @@ DELETE FROM "ExpenseLinePayments"    WHERE "TenantId" = :tenant_id;
 DELETE FROM "ExpenseLines"           WHERE "TenantId" = :tenant_id;
 DELETE FROM "Expenses"               WHERE "TenantId" = :tenant_id;
 DELETE FROM "ExpenseCategories"      WHERE "TenantId" = :tenant_id;
+DELETE FROM "CheckoutKeys"           WHERE "TenantId" = :tenant_id;
 DELETE FROM "CreditMemoItems"        WHERE "TenantId" = :tenant_id;
 DELETE FROM "CreditMemos"            WHERE "TenantId" = :tenant_id;
 DELETE FROM "Payments"               WHERE "TenantId" = :tenant_id;
