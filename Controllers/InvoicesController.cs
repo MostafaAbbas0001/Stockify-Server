@@ -63,7 +63,7 @@ public class InvoicesController : ControllerBase
       }
 
     [HttpPost("{invoiceId:int}/returns")]
-    [RequirePermission("invoice.create")]
+    [RequirePermission("invoice.return")]
     public async Task<IActionResult> ReturnInvoice(
         int invoiceId,
         [FromBody] CreateInvoiceReturnRequest req)

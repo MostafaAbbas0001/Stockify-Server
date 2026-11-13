@@ -31,7 +31,7 @@ public class CancelReturnTests
     }
 
     private static Task<HttpResponseMessage> CancelAsync(TestTenant tenant, int orderId) =>
-        tenant.Owner.PatchAsJsonAsync($"/api/orders/{orderId}/status", new { action = "cancel", reason = "customer left" });
+        tenant.Owner.PostAsJsonAsync($"/api/orders/{orderId}/cancel", new { reason = "customer left" });
 
     private static async Task<int> StockAsync(TestTenant tenant, string barcode) =>
         (await tenant.Owner.GetFromJsonAsync<JsonElement>($"/api/pos/items?code={barcode}")).GetProperty("stockQuantity").GetInt32();

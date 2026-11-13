@@ -22,13 +22,23 @@ public class OrdersController : ControllerBase
     }
 
 
+    /// <summary>Delivery lifecycle: ship, deliver. Cancelling has its own endpoint and permission.</summary>
     [HttpPatch("{orderId:int}/status")]
-    [RequirePermission("order.view")]
+    [RequirePermission("order.create")]
     public async Task<IActionResult> UpdateOrderStatus(
         int orderId,
         [FromBody] UpdateOrderStatusRequest request)
     {
         var result = await _orderService.UpdateOrderStatusAsync(orderId, request);
+
+        return Ok(result);
+    }
+
+    [HttpPost("{orderId:int}/cancel")]
+    [RequirePermission("order.cancel")]
+    public async Task<IActionResult> CancelOrder(int orderId, [FromBody] CancelOrderRequest? request)
+    {
+        var result = await _orderService.CancelOrderAsync(orderId, request?.Reason);
 
         return Ok(result);
     }

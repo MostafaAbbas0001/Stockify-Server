@@ -59,7 +59,7 @@ public class ProductController : ControllerBase
         [FromQuery] string? search,
         [FromQuery] int page = 1)
     {
-        var rows = await _productService.GetByProductAsync(productId, search, page);
+        var rows = await _productService.GetByProductAsync(productId, search, page, includeCost: User.HasPermission("product.update"));
         return Ok(rows);
     }
 

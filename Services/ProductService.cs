@@ -181,7 +181,7 @@ public class ProductService
         return product ?? throw new KeyNotFoundException("Product not found.");
     }
 
-    public async Task<object> GetByProductAsync(int productId, string? search, int page)
+    public async Task<object> GetByProductAsync(int productId, string? search, int page, bool includeCost = true)
     {
         page = Math.Max(page, 1);
         var query = _db.ProductVariants
@@ -215,7 +215,7 @@ public class ProductService
                 ProductCategoryId = variant.Product.CategoryId,
                 CategoryName = variant.Product.Category.Name,
                 variant.Price,
-                variant.NetPrice,
+                NetPrice = includeCost ? variant.NetPrice : (decimal?)null,
                 variant.CreatedAt,
                 Attributes = variant.AttributeValues
                     .OrderBy(value => value.ProductAttribute.Name)

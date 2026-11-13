@@ -64,7 +64,7 @@ public class PaymentTests
         var tenant = await _api.NewTenantAsync("Void Co");
         var (variantId, _, _) = await tenant.VariantWithStockAsync(price: 10.00m, stock: 5);
         var (orderId, invoiceId) = await tenant.OrderAsync((variantId, 1));
-        (await tenant.Owner.PatchAsJsonAsync($"/api/orders/{orderId}/status", new { action = "cancel" })).EnsureSuccessStatusCode();
+        (await tenant.Owner.PostAsJsonAsync($"/api/orders/{orderId}/cancel", new { reason = "test" })).EnsureSuccessStatusCode();
 
         var response = await PayAsync(tenant, invoiceId, 11.10m);
 

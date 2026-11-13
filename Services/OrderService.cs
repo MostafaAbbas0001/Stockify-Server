@@ -229,21 +229,19 @@ public class OrderService
         UpdateOrderStatusRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Action))
-            throw new ArgumentException("Action is required (ship or cancel).");
+            throw new ArgumentException("Action is required (ship or deliver).");
 
         var action = request.Action.Trim().ToLower();
 
-        if (action != "ship" && action != "cancel" && action != "deliver")
-            throw new ArgumentException("Invalid action. Allowed: ship, deliver, cancel.");
-
-        // Load items (with the lots they consumed) only when needed for cancellation
-        var query = _db.Orders.Include(o => o.OrderStatus).AsQueryable();
         if (action == "cancel")
-            query = query.Include(o => o.OrderItems).ThenInclude(item => item.Lots);
+            throw new ArgumentException("Cancelling is a separate action: POST /api/orders/{id}/cancel (needs order.cancel).");
+        if (action != "ship" && action != "deliver")
+            throw new ArgumentException("Invalid action. Allowed: ship, deliver.");
 
-        var order = await query.SingleOrDefaultAsync(o => o.Id == orderId);
-        if (order == null)
-            throw new KeyNotFoundException($"Order {orderId} not found.");
+        var order = await _db.Orders
+            .Include(o => o.OrderStatus)
+            .SingleOrDefaultAsync(o => o.Id == orderId)
+            ?? throw new KeyNotFoundException($"Order {orderId} not found.");
 
         var status = order.OrderStatus.Code;
         if (status == OrderStatusCodes.Cancelled)
@@ -274,36 +272,47 @@ public class OrderService
             };
         }
 
-        if (action == "deliver")
-        {
-            if (status == OrderStatusCodes.Delivered)
-                return new
-                {
-                    order.Id,
-                    order.OrderStatusId
-                };
-
-            if (status != OrderStatusCodes.InTransit)
-                throw new ArgumentException("Only in-transit orders can be marked as delivered.");
-
-            order.OrderStatusId = await _lookups.IdAsync<OrderStatus>(OrderStatusCodes.Delivered);
-            await _db.SaveChangesAsync();
+        if (status == OrderStatusCodes.Delivered)
             return new
             {
                 order.Id,
                 order.OrderStatusId
             };
-        }
 
-        // Cancel flow (D18): only an order nobody has paid for or returned against can be cancelled.
-        // Money already taken is reversed through a return (credit memo), never by cancelling.
+        if (status != OrderStatusCodes.InTransit)
+            throw new ArgumentException("Only in-transit orders can be marked as delivered.");
+
+        order.OrderStatusId = await _lookups.IdAsync<OrderStatus>(OrderStatusCodes.Delivered);
+        await _db.SaveChangesAsync();
+        return new
+        {
+            order.Id,
+            order.OrderStatusId
+        };
+    }
+
+    /// <summary>
+    /// Cancels an order nobody has paid for or returned against (D18): puts the units still out back
+    /// into their lots and voids the invoice. Money already taken is reversed through a return instead.
+    /// </summary>
+    public async Task<object> CancelOrderAsync(int orderId, string? reason)
+    {
+        var order = await _db.Orders
+            .Include(o => o.OrderStatus)
+            .Include(o => o.OrderItems).ThenInclude(item => item.Lots)
+            .SingleOrDefaultAsync(o => o.Id == orderId)
+            ?? throw new KeyNotFoundException($"Order {orderId} not found.");
+
+        var status = order.OrderStatus.Code;
+        if (status == OrderStatusCodes.Cancelled)
+            throw new ArgumentException("Order is already cancelled.");
         if (status is OrderStatusCodes.Returned or OrderStatusCodes.PartiallyReturned)
             throw new InvalidOperationException("This order has returns; it cannot be cancelled.");
         if (await _db.Payments.AnyAsync(p => p.Invoice.OrderId == order.Id))
             throw new InvalidOperationException("This order has payments; refund it through a return instead of cancelling.");
 
         var returnMovementTypeId = await _lookups.IdAsync<MovementType>(MovementTypeCodes.ReturnFromClient);
-        var reasonText = string.IsNullOrWhiteSpace(request.Reason) ? "cancelled" : $"cancelled: {request.Reason.Trim()}";
+        var reasonText = string.IsNullOrWhiteSpace(reason) ? "cancelled" : $"cancelled: {reason.Trim()}";
         foreach (var item in order.OrderItems)
         {
             // Only the units still out with the customer come back.
@@ -334,7 +343,7 @@ public class OrderService
 
         order.OrderStatusId = await _lookups.IdAsync<OrderStatus>(OrderStatusCodes.Cancelled);
         order.CancelledAt = DateTime.UtcNow;
-        order.CancelReason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
+        order.CancelReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
 
         // void related invoice
         var invoice = await _db.Invoices.SingleOrDefaultAsync(i => i.OrderId == order.Id);

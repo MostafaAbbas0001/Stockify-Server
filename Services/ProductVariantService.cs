@@ -103,7 +103,8 @@ public class ProductVariantService
         int? brandId,
         int? categoryId,
         bool? isSellable,
-        int page)
+        int page,
+        bool includeCost = true)
     {
         page = Math.Max(page, 1);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
@@ -145,7 +146,8 @@ public class ProductVariantService
                 CategoryName = variant.Product.Category.Name,
                 SaleName = variant.Sale != null ? variant.Sale.Name : null,
                 variant.Price,
-                variant.NetPrice,
+                // Cost price only for users who manage products (A-04).
+                NetPrice = includeCost ? variant.NetPrice : (decimal?)null,
                 variant.Barcode,
                 variant.ImageUrl,
                 ProductImageUrl = variant.Product.ImageUrl,

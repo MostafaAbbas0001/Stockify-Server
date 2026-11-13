@@ -35,7 +35,8 @@ public class ProductVariantController : ControllerBase
             brandId,
             categoryId,
             isSellable,
-            page);
+            page,
+            includeCost: User.HasPermission("product.update"));
         return Ok(rows);
     }
 
