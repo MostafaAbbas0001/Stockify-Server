@@ -59,7 +59,7 @@ public class InvoicesController : ControllerBase
           int invoiceId,
           RecordPaymentRequest recordPaymentDto)
       {
-        var result = await _invoiceService.AddPaymentAsync(invoiceId, recordPaymentDto);
+        var result = await _invoiceService.AddPaymentAsync(invoiceId, recordPaymentDto, User.BranchScope(null));
 
         return StatusCode(StatusCodes.Status201Created, result);
       }
@@ -70,7 +70,7 @@ public class InvoicesController : ControllerBase
         int invoiceId,
         [FromBody] CreateInvoiceReturnRequest req)
     {
-        var result = await _invoiceService.ReturnInvoiceAsync(invoiceId, req);
+        var result = await _invoiceService.ReturnInvoiceAsync(invoiceId, req, User.BranchScope(null));
 
         return StatusCode(201, result);
     }

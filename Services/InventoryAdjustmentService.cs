@@ -19,8 +19,10 @@ public class InventoryAdjustmentService
     }
 
     public async Task<object> CreateAdjustmentAsync(
-        CreateInventoryAdjustmentRequest request)
+        CreateInventoryAdjustmentRequest request,
+        int? branchScope = null)
     {
+        BranchAccessException.Require(branchScope, request.BranchId, "adjust stock");
         ValidateRequest(
             request.VariantId,
             request.BranchId,
@@ -65,7 +67,8 @@ public class InventoryAdjustmentService
 
     public async Task<object> UpdateAdjustmentAsync(
         int id,
-        UpdateInventoryAdjustmentRequest request)
+        UpdateInventoryAdjustmentRequest request,
+        int? branchScope = null)
     {
         ValidateRequest(
             request.VariantId,
@@ -80,8 +83,9 @@ public class InventoryAdjustmentService
 
         var adjustment = await _db.InventoryAdjustments
             .Include(item => item.InventoryLot)
-            .FirstOrDefaultAsync(item => item.Id == id)
+            .FirstOrDefaultAsync(item => item.Id == id && (branchScope == null || item.BranchId == branchScope))
             ?? throw new KeyNotFoundException("Inventory adjustment not found.");
+        BranchAccessException.Require(branchScope, request.BranchId, "adjust stock");
 
         int quantityBefore;
         int quantityAfter;
@@ -156,14 +160,14 @@ public class InventoryAdjustmentService
         return await GetAdjustmentByIdAsync(adjustment.Id);
     }
 
-    public async Task DeleteAdjustmentAsync(int id)
+    public async Task DeleteAdjustmentAsync(int id, int? branchScope = null)
     {
         await using var transaction = await _db.Database.BeginTransactionAsync(
             System.Data.IsolationLevel.Serializable);
 
         var adjustment = await _db.InventoryAdjustments
             .Include(item => item.InventoryLot)
-            .FirstOrDefaultAsync(item => item.Id == id)
+            .FirstOrDefaultAsync(item => item.Id == id && (branchScope == null || item.BranchId == branchScope))
             ?? throw new KeyNotFoundException("Inventory adjustment not found.");
 
         var reversalQuantity = -adjustment.DeltaQuantity;
@@ -186,11 +190,11 @@ public class InventoryAdjustmentService
         await transaction.CommitAsync();
     }
 
-    public async Task<object> GetAdjustmentByIdAsync(int id)
+    public async Task<object> GetAdjustmentByIdAsync(int id, int? branchScope = null)
     {
         return await _db.InventoryAdjustments
             .AsNoTracking()
-            .Where(item => item.Id == id)
+            .Where(item => item.Id == id && (branchScope == null || item.BranchId == branchScope))
             .Select(item => new
             {
                 item.Id,
@@ -296,8 +300,10 @@ public class InventoryAdjustmentService
     }
 
     public async Task UpdateReorderLevelAsync(
-        SetReorderLevelRequest request)
+        SetReorderLevelRequest request,
+        int? branchScope = null)
     {
+        BranchAccessException.Require(branchScope, request.BranchId, "set reorder levels");
         if (request.BranchId <= 0 || request.VariantId <= 0)
             throw new ArgumentException("Branch and variant are required.");
         if (request.ReorderLevel < 0)

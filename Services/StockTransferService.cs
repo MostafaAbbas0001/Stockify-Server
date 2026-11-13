@@ -23,8 +23,13 @@ public class StockTransferService
 
     public async Task<object> CreateTransferAsync(
         CreateStockTransferRequest dto,
-        int userId)
+        int userId,
+        int? branchScope = null)
     {
+        // A branch-limited user requests stock for their branch or offers stock from it (D22).
+        if (branchScope != null && dto.DestinationBranchId != branchScope && dto.SourceBranchId != branchScope)
+            throw new BranchAccessException("You can only create transfers to or from your own branch.");
+
         // Validate destination branch exists
         var destBranch = await _db.Branches.FindAsync(dto.DestinationBranchId);
         if (destBranch == null || destBranch.IsDeleted)
@@ -110,13 +115,16 @@ public class StockTransferService
 
     public async Task<object> DispatchTransferAsync(
         int id,
-        DispatchStockTransferRequest dto)
+        DispatchStockTransferRequest dto,
+        int? branchScope = null)
     {
         var transfer = await _db.StockTransfers
             .Include(item => item.Items)
             .Include(item => item.DestinationBranch)
-            .FirstOrDefaultAsync(item => item.Id == id)
+            // An open request (no source yet) may be fulfilled by any branch; the sender must be the caller's.
+            .FirstOrDefaultAsync(t => t.Id == id && (branchScope == null || t.SourceBranchId == null || t.SourceBranchId == branchScope || t.DestinationBranchId == branchScope))
             ?? throw new KeyNotFoundException("Transfer not found.");
+        BranchAccessException.Require(branchScope, transfer.SourceBranchId ?? dto.SourceBranchId, "send stock");
 
         if (await StatusCodeAsync(transfer.StatusId) != StockTransferStatusCodes.Draft)
             throw new ArgumentException("Only draft transfers can be dispatched.");
@@ -223,7 +231,8 @@ public class StockTransferService
 
     public async Task<object> RecordTransferReceiptAsync(
         int id,
-        ReceiveStockTransferRequest dto)
+        ReceiveStockTransferRequest dto,
+        int? branchScope = null)
     {
         var transfer = await _db.StockTransfers
             .Include(t => t.Items)
@@ -231,10 +240,11 @@ public class StockTransferService
                 .ThenInclude(item => item.InventoryLot)
             .Include(t => t.SourceBranch)
             .Include(t => t.DestinationBranch)
-            .FirstOrDefaultAsync(t => t.Id == id);
+            .FirstOrDefaultAsync(t => t.Id == id && (branchScope == null || t.SourceBranchId == branchScope || t.DestinationBranchId == branchScope));
 
         if (transfer == null)
             throw new KeyNotFoundException("Transfer not found");
+        BranchAccessException.Require(branchScope, transfer.DestinationBranchId, "receive stock");
 
         var status = await StatusCodeAsync(transfer.StatusId);
         if (status == StockTransferStatusCodes.Draft)
@@ -346,7 +356,7 @@ public class StockTransferService
         };
     }
 
-    public async Task CancelTransferAsync(int id, string? reason)
+    public async Task CancelTransferAsync(int id, string? reason, int? branchScope = null)
     {
         var transfer = await _db.StockTransfers
             .Include(t => t.Items)
@@ -354,7 +364,7 @@ public class StockTransferService
                 .ThenInclude(item => item.InventoryLot)
             .Include(t => t.SourceBranch)
             .Include(t => t.DestinationBranch)
-            .FirstOrDefaultAsync(t => t.Id == id);
+            .FirstOrDefaultAsync(t => t.Id == id && (branchScope == null || t.SourceBranchId == branchScope || t.DestinationBranchId == branchScope));
 
         if (transfer == null)
             throw new KeyNotFoundException("Transfer not found");
@@ -406,7 +416,7 @@ public class StockTransferService
         await transaction.CommitAsync();
     }
 
-    public async Task<object> GetTransferByIdAsync(int id)
+    public async Task<object> GetTransferByIdAsync(int id, int? branchScope = null)
     {
         var transfer = await _db.StockTransfers
             .Include(t => t.SourceBranch)
@@ -423,7 +433,7 @@ public class StockTransferService
             .Include(t => t.Items)
                 .ThenInclude(item => item.Lots)
                 .ThenInclude(item => item.InventoryLot)
-            .FirstOrDefaultAsync(t => t.Id == id);
+            .FirstOrDefaultAsync(t => t.Id == id && (branchScope == null || t.SourceBranchId == null || t.SourceBranchId == branchScope || t.DestinationBranchId == branchScope));
 
         if (transfer == null)
             throw new KeyNotFoundException("Transfer not found");
@@ -623,11 +633,12 @@ public class StockTransferService
 
     public async Task<object> ResolveTransferDiscrepancyAsync(
         int id,
-        ResolveStockTransferDiscrepancyRequest dto)
+        ResolveStockTransferDiscrepancyRequest dto,
+        int? branchScope = null)
     {
         var transfer = await _db.StockTransfers
             .Include(t => t.Status)
-            .FirstOrDefaultAsync(t => t.Id == id);
+            .FirstOrDefaultAsync(t => t.Id == id && (branchScope == null || t.SourceBranchId == branchScope || t.DestinationBranchId == branchScope));
 
         if (transfer == null)
             throw new KeyNotFoundException("Transfer not found");

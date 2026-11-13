@@ -42,7 +42,7 @@ public class InventoryAdjustmentController : ControllerBase
     [RequirePermission("stock.view")]
     public async Task<IActionResult> GetAdjustment(int id)
     {
-        return Ok(await _adjustments.GetAdjustmentByIdAsync(id));
+        return Ok(await _adjustments.GetAdjustmentByIdAsync(id, User.BranchScope(null)));
     }
 
     [HttpPost]
@@ -50,7 +50,7 @@ public class InventoryAdjustmentController : ControllerBase
     public async Task<IActionResult> CreateAdjustment(
         [FromBody] CreateInventoryAdjustmentRequest request)
     {
-        var result = await _adjustments.CreateAdjustmentAsync(request);
+        var result = await _adjustments.CreateAdjustmentAsync(request, User.BranchScope(null));
         return StatusCode(StatusCodes.Status201Created, result);
     }
 
@@ -60,14 +60,14 @@ public class InventoryAdjustmentController : ControllerBase
         int id,
         [FromBody] UpdateInventoryAdjustmentRequest request)
     {
-        return Ok(await _adjustments.UpdateAdjustmentAsync(id, request));
+        return Ok(await _adjustments.UpdateAdjustmentAsync(id, request, User.BranchScope(null)));
     }
 
     [HttpDelete("{id:int}")]
     [RequirePermission("stock.reduce")]
     public async Task<IActionResult> DeleteAdjustment(int id)
     {
-        await _adjustments.DeleteAdjustmentAsync(id);
+        await _adjustments.DeleteAdjustmentAsync(id, User.BranchScope(null));
         return NoContent();
     }
 
@@ -76,7 +76,7 @@ public class InventoryAdjustmentController : ControllerBase
     public async Task<IActionResult> UpdateReorderLevel(
         [FromBody] SetReorderLevelRequest request)
     {
-        await _adjustments.UpdateReorderLevelAsync(request);
+        await _adjustments.UpdateReorderLevelAsync(request, User.BranchScope(null));
         return NoContent();
     }
 }

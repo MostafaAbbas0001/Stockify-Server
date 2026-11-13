@@ -228,7 +228,8 @@ public class OrderService
 
     public async Task<object> UpdateOrderStatusAsync(
         int orderId,
-        UpdateOrderStatusRequest request)
+        UpdateOrderStatusRequest request,
+        int? branchScope = null)
     {
         if (string.IsNullOrWhiteSpace(request.Action))
             throw new ArgumentException("Action is required (ship or deliver).");
@@ -242,7 +243,7 @@ public class OrderService
 
         var order = await _db.Orders
             .Include(o => o.OrderStatus)
-            .SingleOrDefaultAsync(o => o.Id == orderId)
+            .SingleOrDefaultAsync(o => o.Id == orderId && (branchScope == null || o.BranchId == branchScope))
             ?? throw new KeyNotFoundException($"Order {orderId} not found.");
 
         var status = order.OrderStatus.Code;
@@ -297,15 +298,15 @@ public class OrderService
     /// Cancels an order nobody has paid for or returned against (D18): puts the units still out back
     /// into their lots and voids the invoice. Money already taken is reversed through a return instead.
     /// </summary>
-    public Task<object> CancelOrderAsync(int orderId, string? reason) =>
-        SerializableTransactions.RunAsync(_db, () => CancelInTransactionAsync(orderId, reason));
+    public Task<object> CancelOrderAsync(int orderId, string? reason, int? branchScope = null) =>
+        SerializableTransactions.RunAsync(_db, () => CancelInTransactionAsync(orderId, reason, branchScope));
 
-    private async Task<object> CancelInTransactionAsync(int orderId, string? reason)
+    private async Task<object> CancelInTransactionAsync(int orderId, string? reason, int? branchScope)
     {
         var order = await _db.Orders
             .Include(o => o.OrderStatus)
             .Include(o => o.OrderItems).ThenInclude(item => item.Lots)
-            .SingleOrDefaultAsync(o => o.Id == orderId)
+            .SingleOrDefaultAsync(o => o.Id == orderId && (branchScope == null || o.BranchId == branchScope))
             ?? throw new KeyNotFoundException($"Order {orderId} not found.");
 
         var status = order.OrderStatus.Code;

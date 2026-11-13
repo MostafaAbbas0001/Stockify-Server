@@ -17,7 +17,7 @@ public class StockTransferController : ControllerBase
         [FromBody] CreateStockTransferRequest dto)
     {
         var userId = User.GetUserId();
-        var result = await _stockTransferService.CreateTransferAsync(dto, userId);
+        var result = await _stockTransferService.CreateTransferAsync(dto, userId, User.BranchScope(null));
 
         return StatusCode(StatusCodes.Status201Created, result);
     }
@@ -28,7 +28,7 @@ public class StockTransferController : ControllerBase
         int id,
         [FromBody] DispatchStockTransferRequest dto)
     {
-        var result = await _stockTransferService.DispatchTransferAsync(id, dto);
+        var result = await _stockTransferService.DispatchTransferAsync(id, dto, User.BranchScope(null));
 
         return Ok(result);
     }
@@ -41,7 +41,8 @@ public class StockTransferController : ControllerBase
     {
         var result = await _stockTransferService.RecordTransferReceiptAsync(
             id,
-            dto);
+            dto,
+            User.BranchScope(null));
 
         return Ok(result);
     }
@@ -50,7 +51,7 @@ public class StockTransferController : ControllerBase
     [RequirePermission("stockTransfer.cancel")]
     public async Task<IActionResult> CancelTransfer(int id, [FromQuery] string? reason)
     {
-        await _stockTransferService.CancelTransferAsync(id, reason);
+        await _stockTransferService.CancelTransferAsync(id, reason, User.BranchScope(null));
         return NoContent();
     }
 
@@ -58,7 +59,7 @@ public class StockTransferController : ControllerBase
     [RequirePermission("stockTransfer.view")]
     public async Task<IActionResult> GetTransferById(int id)
     {
-        var result = await _stockTransferService.GetTransferByIdAsync(id);
+        var result = await _stockTransferService.GetTransferByIdAsync(id, User.BranchScope(null));
 
         return Ok(result);
     }
@@ -102,7 +103,7 @@ public class StockTransferController : ControllerBase
         [FromBody] ResolveStockTransferDiscrepancyRequest dto)
     {
         var result = await _stockTransferService
-            .ResolveTransferDiscrepancyAsync(id, dto);
+            .ResolveTransferDiscrepancyAsync(id, dto, User.BranchScope(null));
 
         return Ok(result);
     }

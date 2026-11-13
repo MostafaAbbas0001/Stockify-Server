@@ -266,7 +266,8 @@ public class InvoiceService
 
     public async Task<PaymentResult> AddPaymentAsync(
         int invoiceId,
-        RecordPaymentRequest recordPaymentDto)
+        RecordPaymentRequest recordPaymentDto,
+        int? branchScope = null)
     {
         if (recordPaymentDto.Amount < 0.01m || recordPaymentDto.Amount != Pricing.Round2(recordPaymentDto.Amount))
             throw new ArgumentException("Payment amount must be at least 0.01 and have at most two decimals.");
@@ -286,7 +287,7 @@ public class InvoiceService
         {
             var invoice = await _db.Invoices
                 .Include(i => i.InvoiceStatus)
-                .FirstOrDefaultAsync(i => i.Id == invoiceId)
+                .FirstOrDefaultAsync(i => i.Id == invoiceId && (branchScope == null || i.Order.BranchId == branchScope))
                 ?? throw new KeyNotFoundException($"Invoice {invoiceId} not found.");
 
             if (invoice.InvoiceStatus.Code is not (InvoiceStatusCodes.Issued or InvoiceStatusCodes.PartiallyPaid))
@@ -355,7 +356,8 @@ public class InvoiceService
     /// </summary>
     public async Task<object> ReturnInvoiceAsync(
         int invoiceId,
-        CreateInvoiceReturnRequest req)
+        CreateInvoiceReturnRequest req,
+        int? branchScope = null)
     {
         if (req == null || req.Items == null || req.Items.Count == 0)
             throw new ArgumentException("No items to return.");
@@ -367,7 +369,7 @@ public class InvoiceService
             var invoice = await _db.Invoices
                 .Include(i => i.Order)
                 .Include(i => i.InvoiceStatus)
-                .SingleOrDefaultAsync(i => i.Id == invoiceId)
+                .SingleOrDefaultAsync(i => i.Id == invoiceId && (branchScope == null || i.Order.BranchId == branchScope))
                 ?? throw new KeyNotFoundException($"Invoice {invoiceId} not found.");
             if (invoice.InvoiceStatus.Code == InvoiceStatusCodes.Void)
                 throw new ArgumentException("Invoice is void and cannot be returned.");

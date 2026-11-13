@@ -29,7 +29,7 @@ public class OrdersController : ControllerBase
         int orderId,
         [FromBody] UpdateOrderStatusRequest request)
     {
-        var result = await _orderService.UpdateOrderStatusAsync(orderId, request);
+        var result = await _orderService.UpdateOrderStatusAsync(orderId, request, User.BranchScope(null));
 
         return Ok(result);
     }
@@ -38,7 +38,7 @@ public class OrdersController : ControllerBase
     [RequirePermission("order.cancel")]
     public async Task<IActionResult> CancelOrder(int orderId, [FromBody] CancelOrderRequest? request)
     {
-        var result = await _orderService.CancelOrderAsync(orderId, request?.Reason);
+        var result = await _orderService.CancelOrderAsync(orderId, request?.Reason, User.BranchScope(null));
 
         return Ok(result);
     }

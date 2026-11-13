@@ -45,6 +45,7 @@ public sealed class GlobalExceptionMiddleware
             {
                 TenantSuspendedException => StatusCodes.Status403Forbidden,
                 TenantAccessException => StatusCodes.Status403Forbidden,
+                BranchAccessException => StatusCodes.Status403Forbidden,
                 ArgumentException => StatusCodes.Status400BadRequest,
                 KeyNotFoundException => StatusCodes.Status404NotFound,
                 UnauthorizedAccessException => StatusCodes.Status401Unauthorized,
