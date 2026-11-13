@@ -24,6 +24,7 @@ public sealed class ApiFixture : IAsyncLifetime
 
     private readonly string _databaseName = $"stockify_test_{Guid.NewGuid():N}";
     private string _adminConnection = null!;
+    private string _testConnection = null!;
     private WebApplicationFactory<Program> _factory = null!;
 
     public HttpClient Client { get; private set; } = null!;
@@ -41,6 +42,7 @@ public sealed class ApiFixture : IAsyncLifetime
         _adminConnection = new NpgsqlConnectionStringBuilder(baseConnection) { Database = "postgres" }.ConnectionString;
         builder.Database = _databaseName;
         var testConnection = builder.ConnectionString;
+        _testConnection = testConnection;
 
         await using (var admin = new NpgsqlConnection(_adminConnection))
         {
@@ -96,6 +98,17 @@ public sealed class ApiFixture : IAsyncLifetime
         await admin.OpenAsync();
         await using var drop = new NpgsqlCommand($"DROP DATABASE IF EXISTS \"{_databaseName}\" WITH (FORCE)", admin);
         await drop.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>Raw SQL against the throwaway test database, for states the API cannot create (e.g. an expired lot).</summary>
+    public async Task ExecuteSqlAsync(string sql, params (string name, object value)[] parameters)
+    {
+        await using var connection = new NpgsqlConnection(_testConnection);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        foreach (var (name, value) in parameters)
+            command.Parameters.AddWithValue(name, value);
+        await command.ExecuteNonQueryAsync();
     }
 
     /// <summary>A fresh HttpClient carrying the given bearer token.</summary>

@@ -14,6 +14,8 @@ public class ReportService
 
     public async Task<ReportFile> ExportStockOnHandAsync(CancellationToken ct = default)
     {
+        // Expired units are not sellable, so they are not stock on hand (same rule as the POS).
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
         // Build Excel
         using var wb = new XLWorkbook();
         var ws = wb.Worksheets.Add("StockOnHand");
@@ -38,7 +40,8 @@ public class ReportService
                                 join p in _db.Products.AsNoTracking() on pv.ProductId equals p.Id
                                 join b in _db.Brands.AsNoTracking() on p.BrandId equals b.Id into brandJoin
                                 from b in brandJoin.DefaultIfEmpty()
-                                where stock.Quantity > 0
+                                where stock.Quantity > 0 &&
+                                      (!lot.ExpiryDate.HasValue || lot.ExpiryDate >= today)
                                 select new
                                 {
                                     BranchName = br.Name,
@@ -189,177 +192,74 @@ public class ReportService
     public async Task<ReportFile> ExportDailySalesAsync(DateTime date, int? branchId, CancellationToken ct = default)
     {
         if (date == default)
-        {
             throw new ArgumentException("date is required in format YYYY-MM-DD");
-        }
 
-        var targetDateUtc = DateTime.SpecifyKind(date.Date, DateTimeKind.Utc);
-        var nextDateUtc = targetDateUtc.AddDays(1);
-
-        var invoicesQuery = _db.Invoices
-            .AsNoTracking()
-            .Include(i => i.Order)
-                .ThenInclude(o => o.Branch)
-            .Include(i => i.Order)
-                .ThenInclude(o => o.Customer)
-            .Include(i => i.InvoiceStatus)
-            .Include(i => i.Payments)
-            .Where(i => i.IssuedAt >= targetDateUtc && i.IssuedAt < nextDateUtc);
-
-        if (branchId.HasValue)
-        {
-            invoicesQuery = invoicesQuery.Where(i => i.Order.BranchId == branchId.Value);
-        }
-
-        var invoices = await invoicesQuery
-            .Select(i => new
-            {
-                Date = i.IssuedAt,
-                Branch = i.Order.Branch.Name,
-                OrderNumber = i.Order.OrderNumber,
-                InvoiceNumber = i.InvoiceNumber,
-                Customer = i.Order.Customer != null ? i.Order.Customer.Name : string.Empty,
-                Subtotal = i.Subtotal,
-                Tax = i.TaxAmount,
-                Delivery = i.DeliveryChargeAmount,
-                Discount = i.DiscountAmount,
-                Total = i.TotalAmount,
-                Paid = i.Payments.Sum(p => p.Amount),
-                Status = i.InvoiceStatus != null ? i.InvoiceStatus.Name : string.Empty
-            })
-            .OrderByDescending(i => i.Date)
-            .ToListAsync(ct);
-
-        using var wb = new XLWorkbook();
-        var ws = wb.Worksheets.Add("DailySales");
-
-        var headers = new[] { "Date", "Time", "Branch", "Order #", "Invoice #", "Customer", "Subtotal", "Tax", "Delivery", "Discount", "Total", "Remaining Dues", "Status" };
-        for (int i = 0; i < headers.Length; i++)
-        {
-            ws.Cell(1, i + 1).Value = headers[i];
-            ws.Cell(1, i + 1).Style.Font.Bold = true;
-        }
-        ws.SheetView.FreezeRows(1);
-
-        int row = 2;
-        foreach (var inv in invoices)
-        {
-            var localDateTime = inv.Date.ToLocalTime();
-            ws.Cell(row, 1).Value = localDateTime.Date;
-            ws.Cell(row, 2).Value = localDateTime;
-            ws.Cell(row, 3).Value = inv.Branch ?? string.Empty;
-            ws.Cell(row, 4).Value = inv.OrderNumber ?? string.Empty;
-            ws.Cell(row, 5).Value = inv.InvoiceNumber ?? string.Empty;
-            ws.Cell(row, 6).Value = inv.Customer ?? string.Empty;
-            ws.Cell(row, 7).Value = inv.Subtotal;
-            ws.Cell(row, 8).Value = inv.Tax;
-            ws.Cell(row, 9).Value = inv.Delivery;
-            ws.Cell(row, 10).Value = inv.Discount;
-            ws.Cell(row, 11).Value = inv.Total;
-
-            var remaining = inv.Total - inv.Paid;
-            ws.Cell(row, 12).Value = remaining;
-
-            var statusCell = ws.Cell(row, 13);
-            statusCell.Value = inv.Status ?? string.Empty;
-            var statusLower = (inv.Status ?? string.Empty).ToLowerInvariant();
-            switch (statusLower)
-            {
-                case "issued":
-                    statusCell.Style.Fill.BackgroundColor = XLColor.LightGray;
-                    break;
-                case "partially paid":
-                    statusCell.Style.Fill.BackgroundColor = XLColor.LightYellow;
-                    break;
-                case "fully paid":
-                    statusCell.Style.Fill.BackgroundColor = XLColor.LightGreen;
-                    break;
-                case "void":
-                    statusCell.Style.Fill.BackgroundColor = XLColor.LightSlateGray;
-                    break;
-                case "written off":
-                    statusCell.Style.Fill.BackgroundColor = XLColor.CadetBlue;
-                    break;
-                case "refunded":
-                    statusCell.Style.Fill.BackgroundColor = XLColor.LightBlue;
-                    break;
-                case "partially refunded":
-                    statusCell.Style.Fill.BackgroundColor = XLColor.LightCyan;
-                    break;
-                default:
-                    statusCell.Style.Fill.BackgroundColor = XLColor.White;
-                    break;
-            }
-            row++;
-        }
-
-        // Formatting
-        ws.Column(1).Style.DateFormat.Format = "yyyy-mm-dd";
-        ws.Column(2).Style.DateFormat.Format = "HH:mm:ss";
-        ws.Columns(7, 12).Style.NumberFormat.Format = "#,##0.00";
-        ws.Columns().AdjustToContents();
-        ws.RangeUsed()?.SetAutoFilter();
-
-        using var stream = new MemoryStream();
-        wb.SaveAs(stream);
-
-        var stamp = targetDateUtc.ToString("yyyyMMdd");
+        var dayUtc = DateTime.SpecifyKind(date.Date, DateTimeKind.Utc);
+        var bytes = await BuildSalesSheetAsync("DailySales", dayUtc, dayUtc.AddDays(1), branchId, ct);
         var branchPart = branchId.HasValue ? $"_Branch_{branchId.Value}" : string.Empty;
-        return new ReportFile(
-            stream.ToArray(),
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            $"Daily_Sales_{stamp}{branchPart}.xlsx"
-        );
+        return new ReportFile(bytes, XlsxContentType, $"Daily_Sales_{dayUtc:yyyyMMdd}{branchPart}.xlsx");
     }
 
     public async Task<ReportFile> ExportMonthlySalesAsync(DateTime startDate, DateTime? endDate, int? branchId, CancellationToken ct = default)
     {
         if (startDate == default)
-        {
             throw new ArgumentException("startDate is required in format YYYY-MM-DD");
-        }
 
         var rangeStartUtc = DateTime.SpecifyKind(startDate.Date, DateTimeKind.Utc);
         var rangeEndUtc = DateTime.SpecifyKind((endDate ?? startDate).Date, DateTimeKind.Utc).AddDays(1);
+        var bytes = await BuildSalesSheetAsync("MonthlySales", rangeStartUtc, rangeEndUtc, branchId, ct);
+        var branchPart = branchId.HasValue ? $"_Branch_{branchId.Value}" : string.Empty;
+        return new ReportFile(bytes, XlsxContentType,
+            $"Monthly_Sales_{rangeStartUtc:yyyyMMdd}_to_{rangeEndUtc.AddDays(-1):yyyyMMdd}{branchPart}.xlsx");
+    }
 
+    private const string XlsxContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+    /// <summary>
+    /// One row per sale in [startUtc, endUtcExclusive). Void invoices are not sales and are left out.
+    /// Every row adds up: Subtotal − Sale − Discount + Tax + Delivery = Total. Paid and Refunded are
+    /// in base currency (foreign-currency payments are converted at their currency's rate).
+    /// </summary>
+    private async Task<byte[]> BuildSalesSheetAsync(string sheetName, DateTime startUtc, DateTime endUtcExclusive, int? branchId, CancellationToken ct)
+    {
         var invoicesQuery = _db.Invoices
             .AsNoTracking()
-            .Include(i => i.Order)
-                .ThenInclude(o => o.Branch)
-            .Include(i => i.Order)
-                .ThenInclude(o => o.Customer)
-            .Include(i => i.InvoiceStatus)
-            .Include(i => i.Payments)
-            .Where(i => i.IssuedAt >= rangeStartUtc && i.IssuedAt < rangeEndUtc);
+            .Where(i => i.IssuedAt >= startUtc && i.IssuedAt < endUtcExclusive)
+            .Where(i => i.InvoiceStatus.Code != InvoiceStatusCodes.Void);
 
         if (branchId.HasValue)
-        {
             invoicesQuery = invoicesQuery.Where(i => i.Order.BranchId == branchId.Value);
-        }
 
         var invoices = await invoicesQuery
+            .OrderByDescending(i => i.IssuedAt)
             .Select(i => new
             {
                 Date = i.IssuedAt,
                 Branch = i.Order.Branch.Name,
-                OrderNumber = i.Order.OrderNumber,
-                InvoiceNumber = i.InvoiceNumber,
+                i.Order.OrderNumber,
+                i.InvoiceNumber,
                 Customer = i.Order.Customer != null ? i.Order.Customer.Name : string.Empty,
-                Subtotal = i.Subtotal,
+                i.Subtotal,
+                Sale = i.SaleAmount,
+                Discount = i.DiscountAmount,
                 Tax = i.TaxAmount,
                 Delivery = i.DeliveryChargeAmount,
-                Discount = i.DiscountAmount,
                 Total = i.TotalAmount,
-                Paid = i.Payments.Sum(p => p.Amount),
-                Status = i.InvoiceStatus != null ? i.InvoiceStatus.Name : string.Empty
+                Paid = i.Payments.Sum(p => (decimal?)(p.Amount / p.Currency.ExchangeRate)) ?? 0m,
+                Refunded = i.CreditMemos.Sum(c => (decimal?)c.TotalAmount) ?? 0m,
+                StatusCode = i.InvoiceStatus.Code,
+                StatusName = i.InvoiceStatus.Name
             })
-            .OrderByDescending(i => i.Date)
             .ToListAsync(ct);
 
         using var wb = new XLWorkbook();
-        var ws = wb.Worksheets.Add("MonthlySales");
+        var ws = wb.Worksheets.Add(sheetName);
 
-        var headers = new[] { "Date", "Time", "Branch", "Order #", "Invoice #", "Customer", "Subtotal", "Tax", "Delivery", "Discount", "Total", "Remaining Dues", "Status" };
+        var headers = new[]
+        {
+            "Date", "Time", "Branch", "Order #", "Invoice #", "Customer",
+            "Subtotal", "Sale", "Discount", "Tax", "Delivery", "Total", "Paid", "Refunded", "Remaining Dues", "Status"
+        };
         for (int i = 0; i < headers.Length; i++)
         {
             ws.Cell(1, i + 1).Value = headers[i];
@@ -370,6 +270,7 @@ public class ReportService
         int row = 2;
         foreach (var inv in invoices)
         {
+            var paid = Pricing.Round2(inv.Paid);
             var localDateTime = inv.Date.ToLocalTime();
             ws.Cell(row, 1).Value = localDateTime.Date;
             ws.Cell(row, 2).Value = localDateTime;
@@ -378,65 +279,43 @@ public class ReportService
             ws.Cell(row, 5).Value = inv.InvoiceNumber ?? string.Empty;
             ws.Cell(row, 6).Value = inv.Customer ?? string.Empty;
             ws.Cell(row, 7).Value = inv.Subtotal;
-            ws.Cell(row, 8).Value = inv.Tax;
-            ws.Cell(row, 9).Value = inv.Delivery;
-            ws.Cell(row, 10).Value = inv.Discount;
-            ws.Cell(row, 11).Value = inv.Total;
-
-            var remaining = inv.Total - inv.Paid;
-            ws.Cell(row, 12).Value = remaining;
-
-            var statusCell = ws.Cell(row, 13);
-            statusCell.Value = inv.Status ?? string.Empty;
-            var statusLower = (inv.Status ?? string.Empty).ToLowerInvariant();
-            switch (statusLower)
-            {
-                case "issued":
-                    statusCell.Style.Fill.BackgroundColor = XLColor.LightGray;
-                    break;
-                case "partially paid":
-                    statusCell.Style.Fill.BackgroundColor = XLColor.LightYellow;
-                    break;
-                case "fully paid":
-                    statusCell.Style.Fill.BackgroundColor = XLColor.LightGreen;
-                    break;
-                case "void":
-                    statusCell.Style.Fill.BackgroundColor = XLColor.LightSlateGray;
-                    break;
-                case "written off":
-                    statusCell.Style.Fill.BackgroundColor = XLColor.CadetBlue;
-                    break;
-                case "refunded":
-                    statusCell.Style.Fill.BackgroundColor = XLColor.LightBlue;
-                    break;
-                case "partially refunded":
-                    statusCell.Style.Fill.BackgroundColor = XLColor.LightCyan;
-                    break;
-                default:
-                    statusCell.Style.Fill.BackgroundColor = XLColor.White;
-                    break;
-            }
+            ws.Cell(row, 8).Value = inv.Sale;
+            ws.Cell(row, 9).Value = inv.Discount;
+            ws.Cell(row, 10).Value = inv.Tax;
+            ws.Cell(row, 11).Value = inv.Delivery;
+            ws.Cell(row, 12).Value = inv.Total;
+            ws.Cell(row, 13).Value = paid;
+            ws.Cell(row, 14).Value = inv.Refunded;
+            // Within one cent counts as settled, as for payments (D19).
+            var remaining = inv.Total - paid;
+            ws.Cell(row, 15).Value = remaining <= 0.01m ? 0m : remaining;
+            ws.Cell(row, 16).Value = inv.StatusName;
+            ws.Cell(row, 16).Style.Fill.BackgroundColor = StatusFill(inv.StatusCode);
             row++;
         }
 
         ws.Column(1).Style.DateFormat.Format = "yyyy-mm-dd";
         ws.Column(2).Style.DateFormat.Format = "HH:mm:ss";
-        ws.Columns(7, 12).Style.NumberFormat.Format = "#,##0.00";
+        ws.Columns(7, 15).Style.NumberFormat.Format = "#,##0.00";
         ws.Columns().AdjustToContents();
         ws.RangeUsed()?.SetAutoFilter();
 
         using var stream = new MemoryStream();
         wb.SaveAs(stream);
-
-        var stampStart = rangeStartUtc.ToString("yyyyMMdd");
-        var stampEnd = rangeEndUtc.AddDays(-1).ToString("yyyyMMdd");
-        var branchPart = branchId.HasValue ? $"_Branch_{branchId.Value}" : string.Empty;
-        return new ReportFile(
-            stream.ToArray(),
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            $"Monthly_Sales_{stampStart}_to_{stampEnd}{branchPart}.xlsx"
-        );
+        return stream.ToArray();
     }
+
+    /// <summary>Cell colour by invoice status code (codes are stable; display names can be edited or translated).</summary>
+    private static XLColor StatusFill(string statusCode) => statusCode switch
+    {
+        InvoiceStatusCodes.Issued => XLColor.LightGray,
+        InvoiceStatusCodes.PartiallyPaid => XLColor.LightYellow,
+        InvoiceStatusCodes.FullyPaid => XLColor.LightGreen,
+        InvoiceStatusCodes.WrittenOff => XLColor.CadetBlue,
+        InvoiceStatusCodes.Refunded => XLColor.LightBlue,
+        InvoiceStatusCodes.PartiallyRefunded => XLColor.LightCyan,
+        _ => XLColor.White
+    };
 
     public async Task<ReportFile> ExportBranchPerformanceAsync(DateTime startDate, DateTime? endDate, int branchId, CancellationToken ct = default)
     {
