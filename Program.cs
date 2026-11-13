@@ -65,6 +65,7 @@ builder.Services.AddScoped<UserService>();
 // Finance
 builder.Services.AddScoped<ExpenseService>();
 builder.Services.AddScoped<DashboardService>();
+builder.Services.AddScoped<EndOfDayService>();
 
 // Settings
 builder.Services.AddScoped<BranchService>();

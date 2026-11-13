@@ -6,10 +6,19 @@ namespace Stockify.Controllers;
 public class ReportsController : ControllerBase
 {
     private readonly ReportService _reportService;
+    private readonly EndOfDayService _endOfDay;
 
-    public ReportsController(ReportService reportService)
+    public ReportsController(ReportService reportService, EndOfDayService endOfDay)
     {
         _reportService = reportService;
+        _endOfDay = endOfDay;
+    }
+
+    /// <summary>End-of-day (Z) summary for one day: sales, payments by method, refunds, cancels, per seller.</summary>
+    [HttpGet("end-of-day")]
+    public async Task<IActionResult> EndOfDay([FromQuery] DateTime? date, [FromQuery] int? branchId)
+    {
+        return Ok(await _endOfDay.GetAsync(date ?? DateTime.UtcNow, User.BranchScope(branchId)));
     }
 
     private FileContentResult ToFile(ReportFile report) =>
