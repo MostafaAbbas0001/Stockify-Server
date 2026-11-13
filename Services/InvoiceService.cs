@@ -111,6 +111,9 @@ public class InvoiceService
     {
         var invoice = await _db.Invoices
             .AsNoTracking()
+            // Order lines, invoice lines, payments and credit memos are separate collections: one
+            // statement each, instead of one JOIN that multiplies them (~1 s for a 100-line invoice).
+            .AsSplitQuery()
             .Include(i => i.InvoiceStatus)
             .Include(i => i.Order)
                 .ThenInclude(o => o.Customer)
@@ -153,28 +156,9 @@ public class InvoiceService
                     CustomerAddress = i.Order.Customer != null ? i.Order.Customer.Address : null,
                     CreatedByEmployeeId = i.Order.CreatedByEmployeeId,
                     CreatedByEmployeeName = i.Order.CreatedByEmployee != null ? i.Order.CreatedByEmployee.Name : null,
-                    DeliveryLocation = i.Order.DeliveryLocation.LocationName,
-                    OrderItems = _db.OrderItems
-                        .Where(oi => oi.OrderId == i.Order.Id)
-                        .Select(oi => new
-                        {
-                            oi.Id,
-                            oi.ProductVariantId,
-                            ProductName = oi.ProductVariant.Product.Name,
-                            BrandName = oi.ProductVariant.Product.Brand.Name,
-                            VariantSku = oi.ProductVariant.SKU,
-                            CategoryName = oi.ProductVariant.Product.Category.Name,
-                            Attributes = oi.ProductVariant.AttributeValues
-                                .OrderBy(value => value.ProductAttribute.Name)
-                                .Select(value => new
-                                {
-                                    Name = value.ProductAttribute.Name,
-                                    value.Value
-                                })
-                                .ToList(),
-                            oi.Quantity
-                        })
-                        .ToList()
+                    DeliveryLocation = i.Order.DeliveryLocation.LocationName
+                    // The order's lines are not repeated here: InvoiceItems carries the same lines with
+                    // their prices (D21), and the duplicate list doubled the cost of this query.
                 },
                 Payments = _db.Payments
                     .Where(p => p.InvoiceId == i.Id)
