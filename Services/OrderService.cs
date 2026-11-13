@@ -20,12 +20,15 @@ public class OrderService
         _lookups = lookups;
     }
 
-    /// <summary>Status changes the UI may offer for an order in the given status.</summary>
+    /// <summary>
+    /// Status changes the UI may offer for an order in the given status. Cancel is offered only
+    /// before any money is taken (D18); a paid or part-paid sale is reversed with a return.
+    /// </summary>
     public static string[] AllowedActionsFor(string statusCode) => statusCode switch
     {
         OrderStatusCodes.Draft => new[] { "ship", "cancel" },
         OrderStatusCodes.InTransit => new[] { "deliver", "cancel" },
-        OrderStatusCodes.Delivered or OrderStatusCodes.PartiallyPaid => new[] { "cancel" },
+        OrderStatusCodes.Delivered => new[] { "cancel" },
         _ => Array.Empty<string>()
     };
 
