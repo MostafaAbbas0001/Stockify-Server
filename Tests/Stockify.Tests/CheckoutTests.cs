@@ -12,6 +12,32 @@ public class CheckoutTests
 
     public CheckoutTests(ApiFixture api) => _api = api;
 
+    /// <summary>
+    /// Found in the launch load test: 20 tills selling different items at once lost 3 in 4 sales to
+    /// "busy, try again", because every sale bumps the company's shared order and invoice counters.
+    /// </summary>
+    [Fact]
+    public async Task Many_tills_selling_at_once_all_succeed()
+    {
+        var tenant = await _api.NewTenantAsync("Busy Shop Co");
+        var variants = new List<int>();
+        for (var i = 0; i < 15; i++)
+            variants.Add((await tenant.VariantWithStockAsync(price: 10m, stock: 5)).variantId);
+        var bodies = new List<object>();
+        foreach (var variantId in variants)
+            bodies.Add(await CheckoutBodyAsync(tenant, Guid.NewGuid().ToString(), variantId, 1, tendered: 100m));
+
+        var results = await Task.WhenAll(bodies.Select(body => tenant.Owner.PostAsJsonAsync("/api/pos/checkout", body)));
+
+        var failures = new List<string>();
+        foreach (var r in results.Where(r => !r.IsSuccessStatusCode))
+            failures.Add($"{(int)r.StatusCode} {await r.Content.ReadAsStringAsync()}");
+        Assert.Empty(failures);
+        var orders = await tenant.Owner.GetFromJsonAsync<JsonElement>("/api/orders?page=1");
+        var numbers = orders.GetProperty("orders").EnumerateArray().Select(o => o.GetProperty("orderNumber").GetString()).ToList();
+        Assert.Equal(15, numbers.Distinct().Count()); // every sale got its own number
+    }
+
     /// <summary>Audit B-05: an oversized order discount produced a negative invoice.</summary>
     [Fact]
     public async Task Invoice_total_is_floored_at_zero_for_oversized_discount()
