@@ -135,10 +135,11 @@ builder.Services.AddRateLimiter(options =>
 });
 
 // ---------- Controllers & Swagger ----------
-// Query-string dates are UTC (plain dates = midnight UTC), so every list and report filter can
+// Query-string and JSON body dates are UTC (plain dates = midnight UTC), so every list and report filter can
 // compare them with timestamptz columns.
 builder.Services.AddControllers(options =>
-    options.ModelBinderProviders.Insert(0, new UtcDateTimeModelBinderProvider()));
+        options.ModelBinderProviders.Insert(0, new UtcDateTimeModelBinderProvider()))
+    .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new UtcDateTimeJsonConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
