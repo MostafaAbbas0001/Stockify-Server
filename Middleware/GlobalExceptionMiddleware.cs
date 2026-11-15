@@ -79,12 +79,12 @@ public sealed class GlobalExceptionMiddleware
         }
     }
 
-    /// <summary>A plain message for a unique (23505) or foreign-key (23503) violation; null otherwise.</summary>
+    /// <summary>A plain message for a unique (23505) or foreign-key (23503, RESTRICT 23001) violation; null otherwise.</summary>
     private static string? ConstraintViolation(Exception ex) =>
         (ex as Npgsql.PostgresException ?? ex.InnerException as Npgsql.PostgresException)?.SqlState switch
         {
             "23505" => "A record with the same value already exists.",
-            "23503" => "This record is still used by other records and cannot be changed this way.",
+            "23503" or "23001" => "This record is still used by other records and cannot be changed this way.",
             _ => null
         };
 }
