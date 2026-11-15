@@ -462,6 +462,14 @@ Platform-admin endpoints manage companies. They require a platform-admin token (
 - **Errors:** only unexpected `500` in normal use.
 - **Example:** `POST /api/auth/logout` `{"refreshToken":"current"}` → `204`.
 
+#### `POST /api/account/password`
+
+- **Intent/UI:** the Profile screen's *Change password*; any signed-in company user can change their own password (no `users.update` needed).
+- **Auth/input:** signed-in tenant user; body `{currentPassword:string, newPassword:string (min 8)}`.
+- **Success:** `204`. Every refresh token of the user is revoked, so other devices must sign in again; the client signs the user out too.
+- **Errors:** `400` wrong current password, new password shorter than 8 or equal to the current one.
+- **Example:** `POST /api/account/password` `{"currentPassword":"old-pass","newPassword":"New-Pass-2026"}` → `204`.
+
 ### 5.2 Users, roles, and permissions
 
 #### `GET /api/users`
