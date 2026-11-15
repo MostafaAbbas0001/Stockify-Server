@@ -96,6 +96,27 @@ public class AuthService
         await _db.SaveChangesAsync();
     }
 
+    /// <summary>
+    /// Changes the signed-in user's own password after checking the current one. Other devices are
+    /// signed out (their refresh tokens are revoked); this session keeps working until its token expires.
+    /// </summary>
+    public async Task ChangePasswordAsync(int userId, ChangePasswordRequest request)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
+            ?? throw new KeyNotFoundException("User not found.");
+        // 400, not 401: a 401 would make the client think the session expired.
+        if (!_passwordHasher.Verify(request.CurrentPassword, user.PasswordHash))
+            throw new ArgumentException("The current password is incorrect.");
+        if (request.NewPassword == request.CurrentPassword)
+            throw new ArgumentException("The new password must be different from the current one.");
+
+        user.PasswordHash = _passwordHasher.Hash(request.NewPassword);
+        var tokens = await _db.RefreshTokens.Where(t => t.UserId == userId && t.RevokedAt == null).ToListAsync();
+        foreach (var token in tokens)
+            token.RevokedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+    }
+
     private async Task<Tenant> GetActiveTenantAsync(int tenantId)
     {
         var tenant = await _db.Tenants
