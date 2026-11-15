@@ -27,14 +27,14 @@ public class ReportsController : ControllerBase
     [HttpGet("stock-on-hand")]
     public async Task<IActionResult> ExportStockOnHandXlsx(CancellationToken ct = default)
     {
-        var result = await _reportService.ExportStockOnHandAsync(ct);
+        var result = await _reportService.ExportStockOnHandAsync(User.BranchScope(null), ct);
         return ToFile(result);
     }
 
     [HttpGet("low-stock")]
     public async Task<IActionResult> ExportLowStock(CancellationToken ct = default)
     {
-        var result = await _reportService.ExportLowStockAsync(ct);
+        var result = await _reportService.ExportLowStockAsync(User.BranchScope(null), ct);
         return ToFile(result);
     }
 
@@ -65,7 +65,7 @@ public class ReportsController : ControllerBase
     [HttpGet("staff-performance")]
     public async Task<IActionResult> ExportStaffPerformance([FromQuery] DateTime startDate, [FromQuery] DateTime? endDate, [FromQuery] int employeeId, CancellationToken ct = default)
     {
-        var result = await _reportService.ExportStaffPerformanceAsync(startDate, endDate, employeeId, ct);
+        var result = await _reportService.ExportStaffPerformanceAsync(startDate, endDate, employeeId, User.BranchScope(null), ct);
 
         return ToFile(result);
     }
@@ -73,7 +73,7 @@ public class ReportsController : ControllerBase
     [HttpGet("orders")]
     public async Task<IActionResult> ExportOrders([FromQuery] DateTime startDate, [FromQuery] DateTime? endDate, CancellationToken ct = default)
     {
-        var result = await _reportService.ExportOrdersAsync(startDate, endDate, ct);
+        var result = await _reportService.ExportOrdersAsync(startDate, endDate, User.BranchScope(null), ct);
 
         return ToFile(result);
     }
@@ -81,14 +81,14 @@ public class ReportsController : ControllerBase
     [HttpGet("deliveries")]
     public async Task<IActionResult> ExportDelivery([FromQuery] int? deliveryLocationId, CancellationToken ct = default)
     {
-        var result = await _reportService.ExportDeliveryAsync(deliveryLocationId, ct);
+        var result = await _reportService.ExportDeliveryAsync(deliveryLocationId, User.BranchScope(null), ct);
         return ToFile(result);
     }
 
     [HttpGet("customers")]
     public async Task<IActionResult> ExportCustomers([FromQuery] DateTime startDate, [FromQuery] DateTime? endDate, [FromQuery] int? customerId, CancellationToken ct = default)
     {
-        var result = await _reportService.ExportCustomersAsync(startDate, endDate, customerId, ct);
+        var result = await _reportService.ExportCustomersAsync(startDate, endDate, customerId, User.BranchScope(null), ct);
 
         return ToFile(result);
     }

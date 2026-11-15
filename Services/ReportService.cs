@@ -12,7 +12,7 @@ public class ReportService
         _db = db;
     }
 
-    public async Task<ReportFile> ExportStockOnHandAsync(CancellationToken ct = default)
+    public async Task<ReportFile> ExportStockOnHandAsync(int? branchScope = null, CancellationToken ct = default)
     {
         // Expired units are not sellable, so they are not stock on hand (same rule as the POS).
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
@@ -37,6 +37,7 @@ public class ReportService
                                 join lot in _db.InventoryLots.AsNoTracking() on stock.InventoryLotId equals lot.Id
                                 join pv in _db.ProductVariants.AsNoTracking() on lot.ProductVariantId equals pv.Id
                                 join br in _db.Branches.AsNoTracking() on stock.BranchId equals br.Id
+                                where branchScope == null || stock.BranchId == branchScope
                                 join p in _db.Products.AsNoTracking() on pv.ProductId equals p.Id
                                 join b in _db.Brands.AsNoTracking() on p.BrandId equals b.Id into brandJoin
                                 from b in brandJoin.DefaultIfEmpty()
@@ -98,11 +99,12 @@ public class ReportService
         );
     }
 
-    public async Task<ReportFile> ExportLowStockAsync(CancellationToken ct = default)
+    public async Task<ReportFile> ExportLowStockAsync(int? branchScope = null, CancellationToken ct = default)
     {
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var lowStocks = await _db.LocationStocks
             .AsNoTracking()
+            .Where(location => branchScope == null || location.BranchId == branchScope)
             .Select(location => new
             {
                 BranchName = location.Branch.Name,
@@ -458,7 +460,7 @@ public class ReportService
         );
     }
 
-    public async Task<ReportFile> ExportStaffPerformanceAsync(DateTime startDate, DateTime? endDate, int employeeId, CancellationToken ct = default)
+    public async Task<ReportFile> ExportStaffPerformanceAsync(DateTime startDate, DateTime? endDate, int employeeId, int? branchScope = null, CancellationToken ct = default)
     {
         if (startDate == default)
         {
@@ -469,7 +471,7 @@ public class ReportService
             throw new ArgumentException("employeeId is required");
         }
 
-        var employee = await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == employeeId, ct);
+        var employee = await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == employeeId && (branchScope == null || e.BranchId == branchScope), ct);
         if (employee == null)
         {
             throw new KeyNotFoundException("Employee not found");
@@ -597,7 +599,7 @@ public class ReportService
         );
     }
 
-    public async Task<ReportFile> ExportOrdersAsync(DateTime startDate, DateTime? endDate, CancellationToken ct = default)
+    public async Task<ReportFile> ExportOrdersAsync(DateTime startDate, DateTime? endDate, int? branchScope = null, CancellationToken ct = default)
     {
         if (startDate == default)
         {
@@ -616,6 +618,7 @@ public class ReportService
                 .ThenInclude(oi => oi.ProductVariant)
                     .ThenInclude(pv => pv.Product)
             .Where(o => o.CreatedAt >= rangeStartUtc && o.CreatedAt < rangeEndUtc)
+            .Where(o => branchScope == null || o.BranchId == branchScope)
             .ToListAsync(ct);
 
         using var wb = new XLWorkbook();
@@ -688,7 +691,7 @@ public class ReportService
         );
     }
 
-    public async Task<ReportFile> ExportDeliveryAsync(int? deliveryLocationId, CancellationToken ct = default)
+    public async Task<ReportFile> ExportDeliveryAsync(int? deliveryLocationId, int? branchScope = null, CancellationToken ct = default)
     {
         var ordersQuery = _db.Orders
             .AsNoTracking()
@@ -696,7 +699,8 @@ public class ReportService
             .Include(o => o.Customer)
             .Include(o => o.OrderStatus)
             .Include(o => o.DeliveryLocation)
-            .Where(o => !o.DeliveryLocation.IsInStore);
+            .Where(o => !o.DeliveryLocation.IsInStore)
+            .Where(o => branchScope == null || o.BranchId == branchScope);
 
         if (deliveryLocationId.HasValue)
         {
@@ -754,7 +758,7 @@ public class ReportService
         );
     }
 
-    public async Task<ReportFile> ExportCustomersAsync(DateTime startDate, DateTime? endDate, int? customerId, CancellationToken ct = default)
+    public async Task<ReportFile> ExportCustomersAsync(DateTime startDate, DateTime? endDate, int? customerId, int? branchScope = null, CancellationToken ct = default)
     {
         if (startDate == default)
         {
@@ -766,38 +770,35 @@ public class ReportService
 
         var orders = await _db.Orders
             .AsNoTracking()
-            .Include(o => o.Customer)
-            .Include(o => o.Branch)
-            .Include(o => o.Invoices)
-            .Where(o => o.CreatedAt >= rangeStartUtc && o.CreatedAt < rangeEndUtc)
+            .Where(o => o.CreatedAt >= rangeStartUtc && o.CreatedAt < rangeEndUtc &&
+                        o.OrderStatus.Code != OrderStatusCodes.Cancelled &&
+                        (branchScope == null || o.BranchId == branchScope) &&
+                        (customerId == null || o.CustomerId == customerId))
             .Select(o => new
             {
+                o.CustomerId,
                 CustomerName = o.Customer != null ? o.Customer.Name : "Guest",
                 Branch = o.Branch != null ? o.Branch.Name : string.Empty,
                 o.OrderNumber,
                 o.CreatedAt,
-                Subtotal = o.Invoices.Sum(inv => inv.Subtotal)
+                Total = o.Invoices.Sum(inv => (decimal?)inv.TotalAmount) ?? 0m,
+                Paid = (_db.Payments.Where(p => p.Invoice.OrderId == o.Id)
+                            .Sum(p => (decimal?)Math.Round(p.Amount / p.Currency.ExchangeRate, 2)) ?? 0m)
+                       - (_db.CreditMemos.Where(m => m.Invoice.OrderId == o.Id).Sum(m => (decimal?)m.TotalAmount) ?? 0m)
             })
             .ToListAsync(ct);
 
-        if (customerId.HasValue)
-        {
-            // If specific customer requested, filter after projection (since optional guest string)
-            var customer = await _db.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == customerId.Value, ct);
-            if (customer == null)
-            {
-                throw new KeyNotFoundException("Customer not found");
-            }
-            orders = orders.Where(o => o.CustomerName == customer.Name).ToList();
-        }
+        if (customerId.HasValue && !await _db.Customers.AnyAsync(c => c.Id == customerId.Value, ct))
+            throw new KeyNotFoundException("Customer not found");
 
+        // Grouped by customer id: two customers with the same name stay apart.
         var summaryData = orders
-            .GroupBy(o => o.CustomerName)
+            .GroupBy(o => new { o.CustomerId, o.CustomerName })
             .Select(g => new
             {
-                Customer = g.Key,
+                Customer = g.Key.CustomerName,
                 OrdersCount = g.Count(),
-                TotalPaid = g.Sum(x => x.Subtotal),
+                TotalPaid = g.Sum(x => x.Paid),
                 FirstOrder = g.Min(x => x.CreatedAt),
                 LastOrder = g.Max(x => x.CreatedAt)
             })
@@ -808,7 +809,7 @@ public class ReportService
         using var wb = new XLWorkbook();
 
         var summary = wb.Worksheets.Add("Summary");
-        var summaryHeaders = new[] { "Customer", "Orders", "Total Paid (Subtotal)", "First Order", "Last Order" };
+        var summaryHeaders = new[] { "Customer", "Orders", "Total Paid", "First Order", "Last Order" };
         for (int i = 0; i < summaryHeaders.Length; i++)
         {
             summary.Cell(1, i + 1).Value = summaryHeaders[i];
@@ -832,7 +833,7 @@ public class ReportService
         summary.RangeUsed()?.SetAutoFilter();
 
         var details = wb.Worksheets.Add("Orders");
-        var detailHeaders = new[] { "Customer", "Order #", "Branch", "Created At", "Subtotal" };
+        var detailHeaders = new[] { "Customer", "Order #", "Branch", "Created At", "Total", "Paid" };
         for (int i = 0; i < detailHeaders.Length; i++)
         {
             details.Cell(1, i + 1).Value = detailHeaders[i];
@@ -847,11 +848,12 @@ public class ReportService
             details.Cell(dRow, 2).Value = o.OrderNumber;
             details.Cell(dRow, 3).Value = o.Branch;
             details.Cell(dRow, 4).Value = o.CreatedAt.ToLocalTime();
-            details.Cell(dRow, 5).Value = o.Subtotal;
+            details.Cell(dRow, 5).Value = o.Total;
+            details.Cell(dRow, 6).Value = o.Paid;
             dRow++;
         }
         details.Column(4).Style.DateFormat.Format = "yyyy-mm-dd HH:mm:ss";
-        details.Column(5).Style.NumberFormat.Format = "#,##0.00";
+        details.Columns(5, 6).Style.NumberFormat.Format = "#,##0.00";
         details.Columns().AdjustToContents();
         details.RangeUsed()?.SetAutoFilter();
 
