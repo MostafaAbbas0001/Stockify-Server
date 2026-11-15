@@ -39,16 +39,21 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_HTTP_PORTS: 8080
-      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      # GSS encryption is off: the database is on the internal network, and probing it logs libgssapi errors.
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};GSS Encryption Mode=Disable
       JwtSettings__Key: ${JwtSettings__Key}
       PlatformAdmin__Email: ${PlatformAdmin__Email}
       PlatformAdmin__Password: ${PlatformAdmin__Password}
+
+    volumes:
+      - stockify-server-logs:/app/Logs
 
     networks:
       - stockify-network
 
 volumes:
   stockify-postgres-data:
+  stockify-server-logs:
 
 networks:
   stockify-network:

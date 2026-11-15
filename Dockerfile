@@ -34,4 +34,8 @@ EXPOSE 8080
 COPY --from=build /app/publish .
 COPY --from=build --chmod=755 /app/efbundle ./efbundle
 
+# Run as the image's unprivileged "app" user; Logs/ is the only place the API writes (mount a volume there).
+RUN mkdir -p /app/Logs && chown app /app/Logs
+USER app
+
 ENTRYPOINT ["sh", "-c", "./efbundle --connection \"$ConnectionStrings__DefaultConnection\" && exec dotnet Stockify.dll"]
