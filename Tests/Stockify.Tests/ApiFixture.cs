@@ -111,6 +111,20 @@ public sealed class ApiFixture : IAsyncLifetime
         await command.ExecuteNonQueryAsync();
     }
 
+    /// <summary>The API host's services, for running startup code (e.g. the seeder) against the test database.</summary>
+    public IServiceProvider Services => _factory.Services;
+
+    /// <summary>A single number from raw SQL against the test database (counts, flags).</summary>
+    public async Task<long> ScalarAsync(string sql, params (string name, object value)[] parameters)
+    {
+        await using var connection = new NpgsqlConnection(_testConnection);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        foreach (var (name, value) in parameters)
+            command.Parameters.AddWithValue(name, value);
+        return Convert.ToInt64(await command.ExecuteScalarAsync());
+    }
+
     /// <summary>A fresh HttpClient carrying the given bearer token.</summary>
     public HttpClient As(string token)
     {

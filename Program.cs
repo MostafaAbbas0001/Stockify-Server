@@ -200,6 +200,8 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+// Inserts any missing lookup rows, roles, permissions and per-company defaults; never changes existing rows.
+await StartupSeeder.RunAsync(app.Services);
 await PlatformAdminSeeder.EnsureBootstrapAdminAsync(app.Services, app.Configuration);
 
 // `dotnet run -- seed:demo` builds the three demo companies and exits without serving requests.

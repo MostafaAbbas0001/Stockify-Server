@@ -31,6 +31,8 @@ A request goes **Controller → Service → AppDbContext**. Controllers stay thi
 
 Fixed lists (order statuses, payment methods, sale types, ...) are lookup tables, not enums. They are seeded in `Data/Seeds/LookupSeeds.cs` and served by `GET /api/lookups`.
 
+On every start the API runs `Data/Seeds/StartupSeeder.cs`: it inserts any missing lookup row, role, permission or role default, and for each company any missing branch, default tax rate, base currency, in-store delivery location, walk-in customer, expense category or user permission row. Existing rows are never changed (except that a company with tax rates but no default gets its first rate marked as default). If migrations are pending it logs a warning and skips.
+
 ## Local setup
 
 Run these in this folder:
