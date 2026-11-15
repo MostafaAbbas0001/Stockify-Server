@@ -14,7 +14,9 @@ public class CurrencyService
         return await _db.Currencies
             .AsNoTracking()
             .Where(c => c.IsActive)
-            .OrderBy(c => c.Code)
+            // Base currency (rate 1) first, so every picker defaults to it.
+            .OrderByDescending(c => c.ExchangeRate == 1)
+            .ThenBy(c => c.Code)
             .Select(c => new
             {
                 c.Id,
