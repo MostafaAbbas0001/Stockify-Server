@@ -308,7 +308,25 @@ public sealed class TestTenant
         return _fixture.As(await _fixture.LoginAsync(email));
     }
 
-    private static async Task<int> IdOf(HttpResponseMessage response)
+    /// <summary>Creates a branch and returns its id (the endpoint answers <c>true</c>, so the id is looked up by name).</summary>
+    public async Task<int> BranchAsync(string name)
+    {
+        (await Owner.PostAsJsonAsync("/api/branches", new { name })).EnsureSuccessStatusCode();
+        var branches = await Owner.GetFromJsonAsync<JsonElement>("/api/branches");
+        var rows = branches.ValueKind == JsonValueKind.Array ? branches.EnumerateArray() : branches.GetProperty("branches").EnumerateArray();
+        return rows.First(b => b.GetProperty("name").GetString() == name).GetProperty("id").GetInt32();
+    }
+
+    /// <summary>Units of a variant on hand at a branch (0 when the branch has no row).</summary>
+    public async Task<int> StockAtAsync(int variantId, int branchId)
+    {
+        var body = await Owner.GetFromJsonAsync<JsonElement>($"/api/product-variants/{variantId}/location-stock");
+        var row = body.GetProperty("stockPerBranch").EnumerateArray()
+            .FirstOrDefault(s => s.GetProperty("branchId").GetInt32() == branchId);
+        return row.ValueKind == JsonValueKind.Undefined ? 0 : row.GetProperty("stockQuantity").GetInt32();
+    }
+
+    public static async Task<int> IdOf(HttpResponseMessage response)
     {
         var text = await response.Content.ReadAsStringAsync();
         if (!response.IsSuccessStatusCode)
