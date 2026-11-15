@@ -14,9 +14,8 @@ public class CreateExpenseLinePaymentRequest
     [Required]
     public DateTime PaymentDate { get; set; }
 
-    [Required]
-    [StringLength(50)]
     /// <summary>Id of a PaymentMethods row.</summary>
+    [Required]
     public int PaymentMethodId { get; set; }
 
     [StringLength(100)]
@@ -25,5 +24,4 @@ public class CreateExpenseLinePaymentRequest
     [StringLength(500)]
     public string? Notes { get; set; }
 
-    public int? CreatedByUserId { get; set; }
 }
