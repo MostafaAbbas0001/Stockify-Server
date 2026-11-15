@@ -308,6 +308,9 @@ public sealed class TestTenant
         return _fixture.As(await _fixture.LoginAsync(email));
     }
 
+    /// <summary>Signs in as an existing user of this company (password <see cref="ApiFixture.Password"/>).</summary>
+    public async Task<HttpClient> UserAsLoginAsync(string email) => _fixture.As(await _fixture.LoginAsync(email));
+
     /// <summary>Creates a branch and returns its id (the endpoint answers <c>true</c>, so the id is looked up by name).</summary>
     public async Task<int> BranchAsync(string name)
     {
