@@ -334,6 +334,7 @@ public class ProductVariantService
 
         var hasUpdatableField =
             dto.Price.HasValue ||
+            dto.IsSellable.HasValue ||
             dto.NetPrice.HasValue ||
             dto.SaleId.HasValue ||
             dto.Barcode != null ||
@@ -385,6 +386,9 @@ public class ProductVariantService
 
         await _skuService.RefreshVariantAsync(variant);
         variant.Barcode = barcode;
+        if (dto.IsSellable.HasValue)
+            variant.IsSellable = dto.IsSellable.Value;
+
         if (dto.ImageUrl != null)
             variant.ImageUrl = NormalizeOptional(dto.ImageUrl);
         if (dto.SaleId.HasValue)

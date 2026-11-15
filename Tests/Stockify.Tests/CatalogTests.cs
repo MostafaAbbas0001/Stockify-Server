@@ -121,6 +121,29 @@ public class CatalogTests
         Assert.Equal(1, order.GetProperty("items").GetArrayLength());
     }
 
+    /// <summary>Found in the client walkthrough: a sold variant can't be deleted and nothing could hide it.</summary>
+    [Fact]
+    public async Task A_variant_taken_off_sale_cannot_be_sold_until_put_back()
+    {
+        var tenant = await _api.NewTenantAsync("Retire Co");
+        var (variantId, _, barcode) = await tenant.VariantWithStockAsync(price: 10m, stock: 5);
+        await tenant.OrderAsync((variantId, 1)); // it has history now
+
+        (await tenant.Owner.PatchAsJsonAsync($"/api/product-variants/{variantId}", new { isSellable = false })).EnsureSuccessStatusCode();
+        var scan = await tenant.Owner.GetAsync($"/api/pos/items?code={barcode}");
+        var order = await tenant.Owner.PostAsJsonAsync("/api/orders", new
+        {
+            customerId = await tenant.WalkInCustomerIdAsync(), deliveryLocationId = await tenant.InStoreLocationIdAsync(),
+            createdByEmployeeId = await tenant.SalespersonAsync(), discountTypeId = (int?)null, discountValue = 0,
+            items = new[] { new { productVariantId = variantId, quantity = 1 } },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, scan.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, order.StatusCode);
+
+        (await tenant.Owner.PatchAsJsonAsync($"/api/product-variants/{variantId}", new { isSellable = true })).EnsureSuccessStatusCode();
+        await tenant.OrderAsync((variantId, 1));
+    }
+
     [Fact]
     public async Task Unsold_empty_variant_can_be_deleted()
     {

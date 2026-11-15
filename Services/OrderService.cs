@@ -99,6 +99,9 @@ public class OrderService
             var missing = string.Join(", ", variantIds.Except(variants.Select(v => v.Id)));
             throw new ArgumentException($"One or more variants not found: {missing}");
         }
+        var offSale = variants.Where(v => !v.IsSellable).Select(v => v.SKU).ToList();
+        if (offSale.Count > 0)
+            throw new ArgumentException($"Not for sale: {string.Join(", ", offSale)}.");
 
         var discountType = dto.DiscountTypeId is int discountTypeId
             ? await _lookups.FindAsync<DiscountType>(discountTypeId)
