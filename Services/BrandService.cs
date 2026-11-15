@@ -16,6 +16,12 @@ public class BrandService
         if (brand == null || string.IsNullOrWhiteSpace(brand.Name))
             throw new ArgumentException("Brand data is invalid.");
 
+        // Same rule as categories: names are unique ignoring case and surrounding spaces.
+        brand.Name = brand.Name.Trim();
+        var upper = brand.Name.ToUpper();
+        if (await _db.Brands.AnyAsync(item => item.Name.ToUpper() == upper))
+            throw new InvalidOperationException("A brand with the same name already exists.");
+
         await _db.Brands.AddAsync(brand);
         await _db.SaveChangesAsync();
 

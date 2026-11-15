@@ -14,6 +14,8 @@ public class BranchService
         if (branch == null || string.IsNullOrWhiteSpace(branch.Name))
             throw new ArgumentException("Branch data is invalid.");
 
+        branch.Name = branch.Name.Trim();
+        await EnsureUniqueNameAsync(branch.Name, null);
         branch.CreatedAt = DateTime.UtcNow;
         branch.UpdatedAt = DateTime.UtcNow;
         branch.IsDeleted = false;
@@ -53,11 +55,22 @@ public class BranchService
         if (string.IsNullOrWhiteSpace(updated.Name))
             throw new ArgumentException("Branch name is invalid.");
 
-        branch.Name = updated.Name;
+        var name = updated.Name.Trim();
+        await EnsureUniqueNameAsync(name, id);
+        branch.Name = name;
         branch.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
         return branch;
+    }
+
+    /// <summary>Active branch names are unique ignoring case (a deactivated branch's name can be reused).</summary>
+    private async Task EnsureUniqueNameAsync(string name, int? exceptId)
+    {
+        var upper = name.ToUpper();
+        if (await _db.Branches.AnyAsync(other =>
+                !other.IsDeleted && other.Id != exceptId && other.Name.ToUpper() == upper))
+            throw new InvalidOperationException("A branch with the same name already exists.");
     }
 
     public async Task<IEnumerable<Branch>> GetAllAsync()

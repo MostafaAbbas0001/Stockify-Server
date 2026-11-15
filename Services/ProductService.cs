@@ -208,6 +208,8 @@ public class ProductService
             {
                 variant.Id,
                 variant.SKU,
+                variant.Barcode,
+                variant.IsSellable,
                 variant.ImageUrl,
                 ProductImageUrl = variant.Product.ImageUrl,
                 ProductName = variant.Product.Name,
