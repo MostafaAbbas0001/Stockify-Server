@@ -213,19 +213,35 @@ public class EmployeeService
         return await CalculateEmployeeSales(request.EmployeeId, request.StartDate, request.EndDate);
     }
 
+    /// <summary>
+    /// What an employee sold (D23): paid sales, net of tax and delivery, after promotions and the order
+    /// discount, less what was refunded, over whole days from <paramref name="startDate"/> to
+    /// <paramref name="endDate"/> inclusive. Used for commission lines and the staff sales summary.
+    /// </summary>
     private async Task<decimal> CalculateEmployeeSales(int employeeId, DateTime startDate, DateTime endDate)
     {
-        var orders = await _db.Orders
-            .Include(o => o.OrderStatus)
-            .Include(o => o.Invoices)
-            .Where(o => o.CreatedByEmployeeId == employeeId &&
-                   o.CreatedAt >= startDate &&
-                   o.CreatedAt <= endDate &&
-                   o.OrderStatus.Code == OrderStatusCodes.FullyPaid)
+        var start = DateTime.SpecifyKind(startDate.Date, DateTimeKind.Utc);
+        var endExclusive = DateTime.SpecifyKind(endDate.Date.AddDays(1), DateTimeKind.Utc);
+        var paid = new[] { InvoiceStatusCodes.FullyPaid, InvoiceStatusCodes.PartiallyRefunded, InvoiceStatusCodes.Refunded };
+
+        var invoices = await _db.Invoices
+            .AsNoTracking()
+            .Where(i => i.Order.CreatedByEmployeeId == employeeId &&
+                        i.Order.CreatedAt >= start &&
+                        i.Order.CreatedAt < endExclusive &&
+                        paid.Contains(i.InvoiceStatus.Code))
+            .Select(i => new
+            {
+                Charged = i.Subtotal - i.SaleAmount - i.DiscountAmount,
+                NetSubtotal = i.Subtotal - i.SaleAmount,
+                ReturnedNet = _db.CreditMemoItems
+                    .Where(item => item.InvoiceItem.InvoiceId == i.Id)
+                    .Sum(item => (decimal?)(item.Quantity * item.InvoiceItem.FinalUnitPrice)) ?? 0m
+            })
             .ToListAsync();
 
-        decimal totalSales = orders.SelectMany(o => o.Invoices).Sum(i => i.TotalAmount);
-
-        return totalSales;
+        // A refund gives back its share of the order discount too, so it is scaled by charged / net.
+        return Pricing.Round2(invoices.Sum(i =>
+            i.Charged - (i.NetSubtotal > 0 ? i.ReturnedNet * i.Charged / i.NetSubtotal : 0m)));
     }
 }
