@@ -230,6 +230,7 @@ public class SaleService
             throw new ArgumentException("EndDate cannot be earlier than StartDate.");
 
         var saleType = await RequireSaleTypeAsync(request.SaleTypeId);
+        ValidateValue(saleType, request.Value);
         var sale = new Sale
         {
             Name = request.Name.Trim(),
@@ -258,6 +259,7 @@ public class SaleService
             throw new KeyNotFoundException($"Sale with ID {id} not found.");
 
         var saleType = await RequireSaleTypeAsync(request.SaleTypeId);
+        ValidateValue(saleType, request.Value);
         existing.Name = request.Name.Trim();
         existing.SaleTypeId = saleType.Id;
         existing.Value = request.Value;
@@ -266,6 +268,15 @@ public class SaleService
 
         await _db.SaveChangesAsync();
         return ToResponse(existing, saleType);
+    }
+
+    /// <summary>A promotion takes something off: more than nothing, and a percentage at most 100.</summary>
+    private static void ValidateValue(SaleType saleType, decimal value)
+    {
+        if (value <= 0)
+            throw new ArgumentException("The promotion value must be greater than zero.");
+        if (saleType.Code == SaleTypeCodes.Percentage && value > 100)
+            throw new ArgumentException("A percentage promotion cannot exceed 100%.");
     }
 
     private async Task<SaleType> RequireSaleTypeAsync(int saleTypeId) =>
