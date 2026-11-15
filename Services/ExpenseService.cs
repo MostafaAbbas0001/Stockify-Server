@@ -350,6 +350,12 @@ public class ExpenseService
             .GroupBy(p => p.ExpenseLine.ExpenseId)
             .ToDictionaryAsync(g => g.Key, g => g.Sum(p => p.Amount));
 
+        // Approved payments per line, so the per-currency summary below can show paid amounts too.
+        var approvedByLineId = await _db.ExpenseLinePayments
+            .Where(p => expenseLineIds.Contains(p.ExpenseLineId) && p.ApprovedAt != null && p.RejectionReason == null)
+            .GroupBy(p => p.ExpenseLineId)
+            .ToDictionaryAsync(g => g.Key, g => g.Sum(p => p.Amount));
+
         var expenseLineSummary = expenseLines
             .GroupBy(l => l.ExpenseId)
             .ToDictionary(
@@ -386,15 +392,16 @@ public class ExpenseService
             .GroupBy(l => l.ExpenseId)
             .ToDictionary(
                 g => g.Key,
+                // Lines in different currencies can't be added together; the list shows one figure per currency.
                 g => g
-                    .Where(l => l.CurrencyId.HasValue)
-                    .GroupBy(l => new { l.CurrencyId, Code = l.Currency!.Code })
+                    .GroupBy(l => new { l.CurrencyId, Code = l.Currency?.Code })
                     .Select(x => new
                     {
                         CurrencyId = x.Key.CurrencyId,
                         CurrencyCode = x.Key.Code,
-                        CurrencySymbol = x.First().Currency!.Symbol,
-                        TotalAmount = x.Sum(l => l.TotalAmount)
+                        CurrencySymbol = x.First().Currency?.Symbol,
+                        TotalAmount = x.Sum(l => l.TotalAmount),
+                        PaidAmount = x.Sum(l => approvedByLineId.GetValueOrDefault(l.Id))
                     })
                     .ToList());
 
