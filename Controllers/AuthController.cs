@@ -6,7 +6,6 @@ namespace Stockify.Controllers;
 [ApiController]
 [Route("api/auth")]
 [AllowAnonymous]
-[EnableRateLimiting(AuthPolicies.SignInRateLimit)]
 public class AuthController : ControllerBase
 {
     private readonly AuthService _authService;
@@ -17,6 +16,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
+    [EnableRateLimiting(AuthPolicies.SignInRateLimit)]
     public async Task<IActionResult> Login([FromBody] LoginRequest creds)
     {
         return Ok(await _authService.LoginAsync(creds));

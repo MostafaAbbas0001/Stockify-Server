@@ -117,8 +117,9 @@ builder.Services.AddAuthorization(options =>
         .RequireClaim(StockifyClaimTypes.Scope, StockifyClaimTypes.PlatformScope));
 });
 
-// Brute-force protection for the sign-in endpoints (attempts per IP per minute).
-var signInPerMinute = config.GetValue("RateLimiting:SignInPerMinute", 10);
+// Brute-force protection for password sign-in (attempts per client IP per minute; D25). A shop's tills
+// usually share one internet address, so the default leaves room for a whole shift signing in at once.
+var signInPerMinute = config.GetValue("RateLimiting:SignInPerMinute", 30);
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -166,11 +167,17 @@ builder.Services.AddSwaggerGen(options =>
 var app = builder.Build();
 
 // ---------- Pipeline ----------
-// Client IP and scheme from the reverse proxy.
-app.UseForwardedHeaders(new ForwardedHeadersOptions
+// Client IP and scheme from the web client's proxy, the API's only caller (D25). The API is not
+// published to the internet (docker-compose keeps it on the internal network), so the hop in front of it
+// is trusted; without this every user shared the proxy's address and one sign-in rate limit.
+var forwardedHeaders = new ForwardedHeadersOptions
 {
-    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
-});
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+    ForwardLimit = 1
+};
+forwardedHeaders.KnownIPNetworks.Clear();
+forwardedHeaders.KnownProxies.Clear();
+app.UseForwardedHeaders(forwardedHeaders);
 
 // Swagger is served before authentication: the fallback policy would otherwise require a
 // signed-in user just to open the docs. Development only.
