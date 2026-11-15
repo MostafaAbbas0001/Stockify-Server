@@ -335,7 +335,7 @@ public class InventoryAdjustmentService
 
     private async Task EnsureBranchExistsAsync(int branchId)
     {
-        if (!await _db.Branches.AnyAsync(branch => branch.Id == branchId))
+        if (!await _db.Branches.AnyAsync(branch => branch.Id == branchId && !branch.IsDeleted))
             throw new KeyNotFoundException("Branch not found.");
     }
 

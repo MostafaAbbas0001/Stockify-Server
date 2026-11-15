@@ -18,7 +18,7 @@ public class EmployeeService
         if (string.IsNullOrWhiteSpace(dto.Name))
             throw new ArgumentException("Name is required.");
 
-        var branchExists = await _db.Branches.AnyAsync(b => b.Id == dto.BranchId);
+        var branchExists = await _db.Branches.AnyAsync(b => b.Id == dto.BranchId && !b.IsDeleted);
         if (!branchExists)
             throw new ArgumentException($"BranchId '{dto.BranchId}' does not exist.");
 
@@ -178,7 +178,7 @@ public class EmployeeService
 
         if (dto.BranchId.HasValue)
         {
-            var branchExists = await _db.Branches.AnyAsync(b => b.Id == dto.BranchId.Value);
+            var branchExists = await _db.Branches.AnyAsync(b => b.Id == dto.BranchId.Value && !b.IsDeleted);
             if (!branchExists)
                 throw new ArgumentException($"BranchId '{dto.BranchId.Value}' does not exist.");
 

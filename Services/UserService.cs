@@ -25,7 +25,7 @@ public class UserService
             throw new ArgumentException("Invalid RoleId.");
 
         var branch = await _db.Branches.FindAsync(dto.BranchId);
-        if (branch is null)
+        if (branch is null || branch.IsDeleted)
             throw new ArgumentException("Invalid BranchId.");
 
         var email = AuthService.NormalizeEmail(dto.Email);
@@ -85,7 +85,7 @@ public class UserService
             throw new ArgumentException("Invalid RoleId.");
 
         var branch = await _db.Branches.FindAsync(dto.BranchId);
-        if (branch is null)
+        if (branch is null || branch.IsDeleted)
             throw new ArgumentException($"Invalid BranchId: {dto.BranchId}. Branch does not exist.");
 
         var user = new User
@@ -229,7 +229,16 @@ public class UserService
             throw new ArgumentException("The company owner cannot be deleted.");
 
         _db.Users.Remove(user);
-        await _db.SaveChangesAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Transfers, expenses and approvals keep the user who made them.
+            throw new InvalidOperationException(
+                "This user has records (transfers, expenses or approvals) and cannot be deleted. Remove their permissions instead.");
+        }
 
         return true;
     }
