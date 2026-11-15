@@ -51,6 +51,7 @@ public sealed class GlobalExceptionMiddleware
                 UnauthorizedAccessException => StatusCodes.Status401Unauthorized,
                 InvalidOperationException => StatusCodes.Status409Conflict,
                 _ when SerializableTransactions.IsSerializationFailure(ex) => StatusCodes.Status409Conflict,
+                _ when ConstraintViolation(ex) != null => StatusCodes.Status409Conflict,
                 _ => StatusCodes.Status500InternalServerError
             };
             context.Response.ContentType = "application/json";
@@ -70,11 +71,20 @@ public sealed class GlobalExceptionMiddleware
                     ? "An unexpected error occurred."
                     : SerializableTransactions.IsSerializationFailure(ex)
                         ? "The system is busy with the same records; please try again."
-                        : ex.Message,
+                        : ConstraintViolation(ex) ?? ex.Message,
                 traceId
             };
 
             await context.Response.WriteAsJsonAsync(response);
         }
     }
+
+    /// <summary>A plain message for a unique (23505) or foreign-key (23503) violation; null otherwise.</summary>
+    private static string? ConstraintViolation(Exception ex) =>
+        (ex as Npgsql.PostgresException ?? ex.InnerException as Npgsql.PostgresException)?.SqlState switch
+        {
+            "23505" => "A record with the same value already exists.",
+            "23503" => "This record is still used by other records and cannot be changed this way.",
+            _ => null
+        };
 }
