@@ -42,6 +42,7 @@ public class ProductVariantService
         if (saleId.HasValue &&
             !await _db.Sales.AnyAsync(sale => sale.Id == saleId.Value && !sale.IsDeleted))
             throw new ArgumentException("Sale does not exist.");
+        await ValidateUniqueBarcode(NormalizeOptional(dto.Barcode));
 
         var variant = new ProductVariant
         {
@@ -437,6 +438,12 @@ public class ProductVariantService
                 stock.InventoryLot.ProductVariantId == id && stock.Quantity > 0))
             throw new InvalidOperationException(
                 "Cannot delete this variant because it has stock on hand. Reduce the stock to 0 first.");
+        // Sales, stock movements and transfers keep pointing at the variant; deleting it would erase history.
+        if (await _db.StockMovements.AnyAsync(movement => movement.ProductVariantId == id) ||
+            await _db.OrderItems.AnyAsync(item => item.ProductVariantId == id) ||
+            await _db.StockTransferItems.AnyAsync(item => item.ProductVariantId == id))
+            throw new InvalidOperationException(
+                "Cannot delete this variant because it has sales or stock history. Mark it as not sellable instead.");
 
         var unusedLots = await _db.InventoryLots
             .Where(lot => lot.ProductVariantId == id)
