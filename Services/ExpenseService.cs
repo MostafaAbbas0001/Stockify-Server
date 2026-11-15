@@ -69,28 +69,32 @@ public class ExpenseService
                     ?? throw new ArgumentException($"Expense line type {lineTypeId} does not exist.")
                 : null;
 
-            decimal amount = lineDto.Amount;
+            // Each line type needs its own inputs; a missing one is an error, not a silent fallback (D23).
             if (lineType?.Code == ExpenseLineTypeCodes.Percentage &&
-                lineDto.EmployeeId.HasValue && lineDto.Rate.HasValue &&
-                lineDto.StartDate.HasValue && lineDto.EndDate.HasValue)
+                (!lineDto.EmployeeId.HasValue || !lineDto.Rate.HasValue || !lineDto.StartDate.HasValue || !lineDto.EndDate.HasValue))
+                throw new ArgumentException("A percentage line needs an employee, a rate and a period.");
+            if (lineType?.Code == ExpenseLineTypeCodes.Quantity && (!lineDto.Quantity.HasValue || !lineDto.UnitCost.HasValue))
+                throw new ArgumentException("A quantity line needs a quantity and a unit cost.");
+
+            decimal amount = lineDto.Amount;
+            if (lineType?.Code == ExpenseLineTypeCodes.Percentage)
             {
                 var salesRequest = new EmployeeSalesRequest
                 {
-                    EmployeeId = lineDto.EmployeeId.Value,
-                    StartDate = lineDto.StartDate.Value,
-                    EndDate = lineDto.EndDate.Value
+                    EmployeeId = lineDto.EmployeeId!.Value,
+                    StartDate = lineDto.StartDate!.Value,
+                    EndDate = lineDto.EndDate!.Value
                 };
                 decimal totalSales = await _employeeService.GetOrderAmountsPerEmployee(salesRequest);
-                amount = totalSales * (lineDto.Rate.Value / 100);
+                amount = Pricing.Round2(totalSales * (lineDto.Rate!.Value / 100));
             }
             else if (lineType?.Code == ExpenseLineTypeCodes.Fixed)
             {
                 amount = lineDto.Rate ?? 0;
             }
-            else if (lineType?.Code == ExpenseLineTypeCodes.Quantity &&
-                     lineDto.Quantity.HasValue && lineDto.UnitCost.HasValue)
+            else if (lineType?.Code == ExpenseLineTypeCodes.Quantity)
             {
-                amount = lineDto.Quantity.Value * lineDto.UnitCost.Value;
+                amount = Pricing.Round2(lineDto.Quantity!.Value * lineDto.UnitCost!.Value);
             }
 
             if (amount <= 0)
@@ -476,6 +480,8 @@ public class ExpenseService
 
         if (await _lookups.FindAsync<PaymentMethod>(dto.PaymentMethodId) == null)
             throw new ArgumentException($"Payment method {dto.PaymentMethodId} does not exist.");
+        if (dto.Amount < 0.01m || dto.Amount != Pricing.Round2(dto.Amount))
+            throw new ArgumentException("Payment amount must be at least 0.01 and have at most two decimals.");
 
         var payment = new ExpenseLinePayment
         {
@@ -504,7 +510,17 @@ public class ExpenseService
         };
     }
 
-    public async Task<object> MakePaymentDecisionAsync(
+    /// <summary>
+    /// Approves or rejects a pending payment. A decision is final (D23), and decisions run serializably
+    /// so two approvals at once can never pay more than the line's total.
+    /// </summary>
+    public Task<object> MakePaymentDecisionAsync(
+        int id,
+        ExpensePaymentDecisionRequest dto,
+        int userId) =>
+        SerializableTransactions.RunAsync(_db, () => DecideInTransactionAsync(id, dto, userId));
+
+    private async Task<object> DecideInTransactionAsync(
         int id,
         ExpensePaymentDecisionRequest dto,
         int userId)
@@ -516,6 +532,8 @@ public class ExpenseService
 
         if (payment == null)
             throw new KeyNotFoundException($"Payment with ID {id} not found.");
+        if (payment.ApprovedAt != null)
+            throw new InvalidOperationException("This payment has already been decided.");
 
         if (dto.IsApproved)
         {
