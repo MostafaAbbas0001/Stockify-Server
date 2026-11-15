@@ -71,8 +71,22 @@ public class BranchService
     public async Task<bool> DeleteAsync(int id)
     {
         var branch = await _db.Branches.FindAsync(id);
-        if (branch == null)
+        if (branch == null || branch.IsDeleted)
             throw new KeyNotFoundException("Branch not found.");
+
+        // Only an empty, unstaffed branch with nothing in transit can be closed (D24).
+        if (!await _db.Branches.AnyAsync(other => other.Id != id && !other.IsDeleted))
+            throw new InvalidOperationException("The company's last branch cannot be deleted.");
+        if (await _db.BranchLotStocks.AnyAsync(stock => stock.BranchId == id && stock.Quantity > 0))
+            throw new InvalidOperationException("This branch still has stock. Transfer or remove it first.");
+        if (await _db.Users.AnyAsync(user => user.BranchId == id))
+            throw new InvalidOperationException("Users are assigned to this branch. Move them to another branch first.");
+        if (await _db.Employees.AnyAsync(employee => employee.BranchId == id))
+            throw new InvalidOperationException("Employees are assigned to this branch. Move them to another branch first.");
+        var inTransit = new[] { StockTransferStatusCodes.Sent, StockTransferStatusCodes.PartiallyReceived };
+        if (await _db.StockTransfers.AnyAsync(transfer =>
+                (transfer.SourceBranchId == id || transfer.DestinationBranchId == id) && inTransit.Contains(transfer.Status.Code)))
+            throw new InvalidOperationException("Stock is in transit to or from this branch. Receive or cancel the transfers first.");
 
         branch.IsDeleted = true;
         branch.UpdatedAt = DateTime.UtcNow;
