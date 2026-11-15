@@ -175,6 +175,43 @@ public class CatalogTests
             Assert.True((await tenant.Owner.GetAsync(path)).IsSuccessStatusCode, path);
     }
 
+    /// <summary>Found in Phase 7: no screen could put items on a promotion, so promotions never applied.</summary>
+    [Fact]
+    public async Task Items_are_added_to_and_removed_from_a_promotion()
+    {
+        var tenant = await _api.NewTenantAsync("Promo Items Co");
+        var (a, _, barcodeA) = await tenant.VariantWithStockAsync(price: 50m, stock: 3);
+        var (b, _, barcodeB) = await tenant.VariantWithStockAsync(price: 20m, stock: 3);
+        var saleId = await TestTenant.IdOf(await SaleAsync(tenant, "PERCENTAGE", 10m));
+
+        var add = await tenant.Owner.PostAsJsonAsync($"/api/sales/{saleId}/variants", new { variantIds = new[] { a, b } });
+        Assert.True(add.IsSuccessStatusCode, await add.Content.ReadAsStringAsync());
+        Assert.Equal(5m, (await tenant.Owner.GetFromJsonAsync<JsonElement>($"/api/pos/items?code={barcodeA}")).GetProperty("saleDiscount").GetDecimal());
+        var detail = await tenant.Owner.GetFromJsonAsync<JsonElement>($"/api/sales/{saleId}?page=1");
+        Assert.Equal(2, detail.EnumerateObject().First(p => p.Value.ValueKind == JsonValueKind.Array).Value.GetArrayLength());
+
+        Assert.True((await tenant.Owner.DeleteAsync($"/api/sales/{saleId}/variants/{b}")).IsSuccessStatusCode);
+        Assert.Equal(0m, (await tenant.Owner.GetFromJsonAsync<JsonElement>($"/api/pos/items?code={barcodeB}")).GetProperty("saleDiscount").GetDecimal());
+        Assert.Equal(5m, (await tenant.Owner.GetFromJsonAsync<JsonElement>($"/api/pos/items?code={barcodeA}")).GetProperty("saleDiscount").GetDecimal());
+    }
+
+    [Fact]
+    public async Task Promotion_items_need_the_permission_and_a_live_promotion_of_this_company()
+    {
+        var tenant = await _api.NewTenantAsync("Promo Guard Co");
+        var other = await _api.NewTenantAsync("Other Promo Co");
+        var (mine, _, _) = await tenant.VariantWithStockAsync(price: 50m, stock: 1);
+        var (theirs, _, _) = await other.VariantWithStockAsync(price: 50m, stock: 1);
+        var saleId = await TestTenant.IdOf(await SaleAsync(tenant, "PERCENTAGE", 10m));
+        var viewer = await tenant.UserAsync("OrderManager", "sale.view", "variant.view");
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PostAsJsonAsync($"/api/sales/{saleId}/variants", new { variantIds = new[] { mine } })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await tenant.Owner.PostAsJsonAsync($"/api/sales/{saleId}/variants", new { variantIds = new[] { theirs } })).StatusCode);
+
+        (await tenant.Owner.DeleteAsync($"/api/sales/{saleId}")).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.NotFound, (await tenant.Owner.PostAsJsonAsync($"/api/sales/{saleId}/variants", new { variantIds = new[] { mine } })).StatusCode);
+    }
+
     [Fact]
     public async Task Promotion_values_must_make_sense()
     {

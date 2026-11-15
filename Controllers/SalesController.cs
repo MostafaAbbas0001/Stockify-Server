@@ -70,4 +70,20 @@ public class SalesController : ControllerBase
         await _saleService.DeleteSaleAsync(id);
         return NoContent();
     }
+
+    [HttpPost("{saleId:int}/variants")]
+    [RequirePermission("sale.assignVariant")]
+    public async Task<IActionResult> AssignVariants(int saleId, [FromBody] AssignSaleVariantsRequest request)
+    {
+        var assigned = await _saleService.AssignVariantsAsync(saleId, request.VariantIds);
+        return Ok(new { assigned });
+    }
+
+    [HttpDelete("{saleId:int}/variants/{variantId:int}")]
+    [RequirePermission("sale.assignVariant")]
+    public async Task<IActionResult> RemoveVariant(int saleId, int variantId)
+    {
+        await _saleService.RemoveVariantAsync(saleId, variantId);
+        return NoContent();
+    }
 }

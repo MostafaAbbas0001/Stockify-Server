@@ -294,6 +294,34 @@ public class SaleService
         sale.IsDeleted,
         sale.CreatedAt);
 
+    /// <summary>Puts variants on a live promotion of this company; a variant on another promotion moves.</summary>
+    public async Task<int> AssignVariantsAsync(int saleId, IReadOnlyCollection<int> variantIds)
+    {
+        if (variantIds.Count == 0)
+            throw new ArgumentException("Choose at least one item.");
+        if (!await _db.Sales.AnyAsync(sale => sale.Id == saleId && !sale.IsDeleted))
+            throw new KeyNotFoundException($"Sale with ID {saleId} not found.");
+
+        var ids = variantIds.Distinct().ToList();
+        var variants = await _db.ProductVariants.Where(variant => ids.Contains(variant.Id)).ToListAsync();
+        if (variants.Count != ids.Count)
+            throw new ArgumentException("One or more items were not found.");
+
+        foreach (var variant in variants)
+            variant.SaleId = saleId;
+        await _db.SaveChangesAsync();
+        return variants.Count;
+    }
+
+    /// <summary>Takes one variant off a promotion (no-op if it is not on it).</summary>
+    public async Task RemoveVariantAsync(int saleId, int variantId)
+    {
+        var variant = await _db.ProductVariants.FirstOrDefaultAsync(item => item.Id == variantId && item.SaleId == saleId)
+            ?? throw new KeyNotFoundException("This item is not on the promotion.");
+        variant.SaleId = null;
+        await _db.SaveChangesAsync();
+    }
+
     public async Task<bool> DeleteSaleAsync(int id)
     {
         var sale = await _db.Sales.FindAsync(id);
